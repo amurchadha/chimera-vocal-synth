@@ -143,7 +143,23 @@ pub struct PlanOptions {
     /// Unset: articulator speeds don't depend on duration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub speedup: Option<f64>,
+    /// a lively delivery (rap): stressed vowels get a harder breath and unstressed ones a softer
+    /// one (louder and more pressed, since vocal effort follows the applied pressure), and a vowel
+    /// with a given pitch starts a little high after a voiceless obstruent and a little low after
+    /// a voiced one (microprosody). Unset: one even breath, no pitch kicks; the source
+    /// otherwise changed nothing from syllable to syllable, so stress was carried by timing alone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lively: Option<bool>,
 }
+
+/// `PlanOptions::lively` breath per vowel stress (1 = the utterance's breath): primary,
+/// secondary, unstressed. Sluijter & van Heuven 1996: stress is heard in intensity and spectral
+/// balance as much as in duration.
+const LIVELY_BREATH: [f64; 3] = [1.22, 1.08, 0.9];
+/// `PlanOptions::lively` pitch at a vowel's start after a voiceless / voiced obstruent (fraction
+/// of its pitch), fading over `LIVELY_KICK_FADE` s (Lehiste & Peterson 1961; Hombert 1978).
+const LIVELY_KICK: [f64; 2] = [1.07, 0.95];
+const LIVELY_KICK_FADE: f64 = 0.05;
 
 /// JS truthiness of an optional number (`if (s.f0)`: 0 and NaN are false).
 #[inline]
@@ -355,6 +371,14 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
     // rather than voicing ahead of the note. Speech and live notes keep their 20 ms lead.
     let breath_at = if sung { BREATH_SUNG_AT } else { 0.04 };
     gestures.push(Gesture::new(o.t0 + breath_at, end, 0.04, if open_end { 0.07 } else { 0.05 }, 1.0, one(ControlKey::BREATH, 1.0)).label("breath"));
+    if o.lively == Some(true) {
+        for &i in &v_idx {
+            let Span { t0, t1 } = times[i];
+            let level = LIVELY_BREATH[match segs[i].stress { Some(1) => 0, Some(2) => 1, _ => 2 }];
+            let r = js_min(0.025, 0.4 * (t1 - t0));
+            gestures.push(Gesture::new(t0, t1, r, r, 3.0, one(ControlKey::BREATH, level)).label("stress"));
+        }
+    }
     // ---- end of the breath group: the folds part as the breath stops, so a final obstruent is
     // released into silence instead of into an added vowel ("cat-uh"). After a vowel or sonorant
     // they part once the pressure has fallen, so the voice fades out instead of ending in an [h].
@@ -419,6 +443,14 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
         // line's wobble).
         let until = if has_f0 && (sung || open_end) { t1 } else { hold };
         gestures.push(Gesture::new(t0, until, r, r, if has_f0 { 6.0 } else { 1.0 }, one(ControlKey::F0, target)).label("pitch"));
+        let prev = if i > 0 { segs[i - 1].def } else { None };
+        if o.lively == Some(true) && has_f0 && !sung
+            && let Some(d) = prev
+            && matches!(d.manner, Manner::Stop | Manner::Fricative | Manner::Affricate)
+        {
+            let k = LIVELY_KICK[if d.voicing == Voicing::Voiceless { 0 } else { 1 }];
+            gestures.push(Gesture::new(t0, t0 + js_min(0.02, 0.3 * (t1 - t0)), 0.01, LIVELY_KICK_FADE, 30.0, one(ControlKey::F0, target * k)).label("pitch kick"));
+        }
     }
     // sung: a consonant given its note's pitch holds it, so the pitch moves during an onset
     // consonant and has arrived when the vowel starts

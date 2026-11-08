@@ -26,7 +26,7 @@ usage: chimera <command> [args] [--float]
   render creature [creatureId] [outdir]
   render vowels  [male|female|child] [out]
   render rap     <out> <score.json> [male|female|child] [--timing even|klatt] [--speedup x]
-                 [--base-hz hz] [--tele voice.tele] [--dump]  (timed words as tools/performance takes them; klatt puts
+                 [--base-hz hz] [--tele voice.tele] [--lively] [--dump]  (timed words as tools/performance takes them; klatt puts
                  vowel onsets on the beats; --speedup moves articulators up to x faster in short sounds)
   rap score      <out.json> [bpm] [syllables per beat] [hz] [\"line / line\"]  (a test score on a grid)
   diagnose       [outdir]

@@ -4,6 +4,7 @@
 use crate::js::fixed;
 use crate::render::{g2p, render_blocks, render_tracked};
 use crate::{Ctx, FS, arg, body, wav_name};
+use chimera::anatomy::human::BodyMix;
 use chimera::math::js_round;
 use chimera::phonetics::Intonation;
 use chimera::phonetics::{Plan, Segment};
@@ -33,7 +34,8 @@ fn take_opt(a: &mut Vec<String>, name: &str) -> Option<String> {
 }
 
 /// `render rap <out> <score.json> [male|female|child] [--timing even|klatt] [--speedup x]
-/// [--base-hz hz] [--tele voice.tele] [--dump]`. `--tele` also records the voice's telemetry, which
+/// [--base-hz hz] [--tele voice.tele] [--lively] [--dump]`. `--lively`: stressed syllables
+/// louder and pitch-accented, a fall across each breath group, pitch kicks after obstruents. `--tele` also records the voice's telemetry, which
 /// tools/performance/render-new.mjs draws the vocal tract from.
 pub fn render(ctx: &Ctx, a: &[String]) -> Result<(), String> {
     let mut a = a.to_vec();
@@ -47,6 +49,8 @@ pub fn render(ctx: &Ctx, a: &[String]) -> Result<(), String> {
     let base_hz: Option<f64> = take_opt(&mut a, "--base-hz").map(|s| s.parse().map_err(|_| "--base-hz must be a number")).transpose()?;
     let tele_out = take_opt(&mut a, "--tele");
     let probe_out = take_opt(&mut a, "--probe");
+    let lively = a.iter().any(|x| x == "--lively");
+    a.retain(|x| x != "--lively");
     let dump = a.iter().any(|x| x == "--dump");
     a.retain(|x| x != "--dump");
     let name = arg(&a, 0, "out/rap");
@@ -95,7 +99,10 @@ pub fn render(ctx: &Ctx, a: &[String]) -> Result<(), String> {
                     }
                     rap.push(RapWord { segments, start: num(w, "start", text)?, end: num(w, "end", text)?, f0: num(w, "hz", text)? });
                 }
-                let group = fit_rap_group(&rap, body_name.into(), timing);
+                let mut group = fit_rap_group(&rap, body_name.into(), timing);
+                if lively {
+                    shape_pitch(&mut group.segments, body_name.into());
+                }
                 if dump {
                     let s: Vec<String> = group.segments.iter().map(|s| format!("{}{}{}:{:.0}", if s.stress == Some(1) { "ˈ" } else { "" }, s.ipa, if s.word_end == Some(true) { "|" } else { "" }, 1000.0 * s.dur.unwrap_or(0.0))).collect();
                     println!("t0 {:.3}  {}", group.t0, s.join(" "));
@@ -103,7 +110,7 @@ pub fn render(ctx: &Ctx, a: &[String]) -> Result<(), String> {
                 for &i in &group.overfull {
                     overfull.push(batch[i].get("text").and_then(Value::as_str).unwrap_or("?").to_string());
                 }
-                plans.push(plan_utterance(&group.segments, &PlanOptions { body: body_name.into(), t0: group.t0, f0: Some(rap[0].f0), intonation: Some(Intonation::Flat), speedup, ..Default::default() }));
+                plans.push(plan_utterance(&group.segments, &PlanOptions { body: body_name.into(), t0: group.t0, f0: Some(rap[0].f0), intonation: Some(Intonation::Flat), speedup, lively: lively.then_some(true), ..Default::default() }));
             }
             batch.clear();
             Ok(())
@@ -173,6 +180,21 @@ pub fn render(ctx: &Ctx, a: &[String]) -> Result<(), String> {
         println!("too fast to say in full (respell with \"pronunciation\"): {}", overfull.join(", "));
     }
     Ok(())
+}
+
+/// `--lively` pitch over a breath group's words (each vowel holds its word's pitch): stressed
+/// vowels 8 % up, a 6 % fall across the group, and its last stressed vowel 6 % down instead
+/// (the line lands). A flat pitch per word was a monotone over everything the score left flat.
+fn shape_pitch(segs: &mut [Segment], body: BodyMix) {
+    let vowels: Vec<usize> = (0..segs.len()).filter(|&i| is_vowel(&segs[i].ipa, body)).collect();
+    let n = vowels.len();
+    let last_stressed = vowels.iter().rev().find(|&&i| segs[i].stress == Some(1)).copied();
+    for (k, &i) in vowels.iter().enumerate() {
+        let Some(f0) = segs[i].f0 else { continue };
+        let decl = 1.0 - 0.06 * if n > 1 { k as f64 / (n - 1) as f64 } else { 0.0 };
+        let accent = if n >= 3 && Some(i) == last_stressed { 0.94 } else if segs[i].stress == Some(1) { 1.08 } else { 1.0 };
+        segs[i].f0 = Some(f0 * decl * accent);
+    }
 }
 
 /// `rap score <out.json> <bpm> <syllables per beat> <hz> "<line> / <line>"`: every syllable one
