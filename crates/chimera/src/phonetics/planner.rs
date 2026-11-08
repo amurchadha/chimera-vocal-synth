@@ -302,6 +302,12 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
         let next_vowel = i < segs.len() - 1 && segs[i + 1].vowel.is_some();
         let prev_seg = if i > 0 { Some(&segs[i - 1]) } else { None };
         let fast = boost(i);
+        // a voiceless stop or affricate is aspirated when syllable-initial before a vowel and not
+        // after /s/ (English-like); fast talking shortens the aspiration with the squeeze of the
+        // stop and its vowel: a fixed 50 ms VOT and 45 ms release would leave a 40 ms rap vowel all breath
+        let aspirated = next_vowel && !prev_seg.is_some_and(|p| p.ipa == "s");
+        let squeeze = js_max(fast, if i + 1 < segs.len() { boost(i + 1) } else { 1.0 });
+        let vot = if aspirated { 0.05 / rate / squeeze } else { 0.012 };
         let mut add_oral = |tg: &ArticPatch, a: f64, b: f64, speed: f64, label: &str| oral_gestures_into(def, tg, a, b, speed * fast, fast, label, &mut gestures);
         match def.manner {
             // a stop that closes behind another stop's closure, its articulator already placed by
@@ -327,8 +333,14 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
                 let split = t0 + dur * 0.55;
                 add_oral(&def.targets, t0, split, 2.0, def.ipa);
                 let rel = def.release.and_then(|r| phoneme(r, body));
+                // a real affricate's frication is its voice onset time: the constriction holds while
+                // the folds are apart (to the aspiration gesture's hold, t1 + 0.4·VOT, for a
+                // voiceless one; to t1 for a voiced one), and lets go at once, so the closing
+                // gesture's 20 ms latency lead is added back. Released at t1 instead, a voiceless
+                // one gave 35–40 ms of /ʃ/ and then ~50 ms of [h]
+                let open = if def.voicing == Voicing::Voiceless { 0.4 * vot } else { 0.0 };
                 if let Some(rel) = rel {
-                    add_oral(&rel.targets, split + 0.008, t1, 1.4, def.ipa);
+                    add_oral(&rel.targets, split + 0.008, t1 + open + 0.02, 1.4, def.ipa);
                 }
             }
             Manner::Fricative | Manner::Approximant | Manner::Lateral => add_oral(&def.targets, t0, t1, 1.3, def.ipa),
@@ -349,12 +361,6 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
             gestures.push(Gesture::new(t0, t1, 0.012, 0.015, 8.0, one(ControlKey::CLOSURE, 1.0)).label("ʔ"));
         } else if def.voicing == Voicing::Voiceless {
             if def.manner == Manner::Stop || def.manner == Manner::Affricate {
-                // aspirated when syllable-initial before a vowel and not after /s/ (English-like)
-                let aspirated = next_vowel && !prev_seg.is_some_and(|p| p.ipa == "s");
-                // fast talking shortens the aspiration with the squeeze of the stop and its vowel:
-                // a fixed 50 ms VOT and 45 ms release would leave a 40 ms rap vowel all breath
-                let squeeze = js_max(fast, if i + 1 < segs.len() { boost(i + 1) } else { 1.0 });
-                let vot = if aspirated { 0.05 / rate / squeeze } else { 0.012 };
                 gestures.push(Gesture::new(t0 + 0.25 * dur, t1 + vot * 0.4, 0.035, if aspirated { 0.045 / squeeze } else { 0.02 }, 6.0, one(ControlKey::ABDUCTION, if aspirated { 0.36 } else { 0.22 })).label("aspiration"));
             } else {
                 gestures.push(Gesture::new(t0 - 0.015, t1 + 0.005, 0.03, 0.03, 6.0, one(ControlKey::ABDUCTION, 0.3)).label("voiceless"));

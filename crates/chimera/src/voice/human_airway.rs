@@ -9,6 +9,21 @@ use crate::anatomy::human::{HumanArtic, HumanBody, HumanFrame, HumanVocalTract};
 use crate::math::{js_max, js_min, js_round, smoothstep as smooth, sqrt};
 use crate::physics::{C_SOUND, RHO, WALL_NASAL, WALL_SOFT, WALL_TRACHEA};
 
+/// The obstacle (teeth) source's low-pass at the adult male /ʃ/'s constriction (its calibration
+/// target, 0.2 cm²). A jet's noise spectrum scales with v/D (a Strouhal number; Stevens 1971), and
+/// through a constriction that takes most of the pressure drop v is about the same whatever its
+/// size, so the band follows 1/D ∝ 1/√A: an /s/ (0.085 cm²) is brighter than an /ʃ/, and a smaller
+/// body's jets are brighter than a larger one's. One fixed band put every jet's noise where the
+/// male /ʃ/'s belongs.
+const TEETH_LP: f64 = 5000.0;
+const TEETH_LP_AREA: f64 = 0.2;
+/// The narrowest jet a fricative holds, the adult male /s/'s (its calibration target, cm²; a body
+/// holds it at this × its scale²). The 1/√A law rests on the held sibilants (0.085–0.22 cm²); a
+/// narrower opening is a closure closing or releasing, and there the law ran on toward an
+/// unbounded band (A → 0): a stop or affricate release was brighter than any fricative. Its band
+/// stops at this one's.
+const TEETH_LP_NARROWEST: f64 = 0.085;
+
 #[derive(Clone, Copy, Debug)]
 pub struct NoiseGains {
     pub glottis: f64,
@@ -315,7 +330,9 @@ impl HumanAirway {
                     let teeth_i = n_ph_i + js_min((n_or - 2) as f64, js_max(0.0, js_round((f.teeth_s - self.ph_len) / dx_or))) as isize;
                     let tb = to_branch(teeth_i);
                     if tb >= 0 {
-                        list.push(NoiseSpec::new(src as usize, tb as usize, bwd as usize, g.teeth * wt).band(5000.0, 1200.0));
+                        // the band follows the jet's v/D (see TEETH_LP)
+                        let lp = TEETH_LP * sqrt(TEETH_LP_AREA / js_max(min_a, TEETH_LP_NARROWEST * k2));
+                        list.push(NoiseSpec::new(src as usize, tb as usize, bwd as usize, g.teeth * wt).band(lp, 1200.0));
                     }
                 }
             }

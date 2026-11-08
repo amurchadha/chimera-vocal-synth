@@ -173,9 +173,10 @@ pub fn klatt_durations(segs: &[Segment], info: impl Fn(&Segment) -> SegInfo) -> 
                     p *= 0.7;
                 }
                 let mut d = min + (inh - min) * p;
-                // aspiration after a voiceless stop eats into a stressed vowel's onset: give it back
+                // aspiration after a voiceless stop or affricate eats into a stressed vowel's onset:
+                // give it back
                 let pv = if i > 0 { Some(inf[i - 1]) } else { None };
-                if stress > 0 && pv.is_some_and(|pv| pv.manner == Some(Manner::Stop) && pv.voiced != Some(true)) {
+                if stress > 0 && pv.is_some_and(|pv| matches!(pv.manner, Some(Manner::Stop | Manner::Affricate)) && pv.voiced != Some(true)) {
                     d += 20.0;
                 }
                 return d / 1000.0;
