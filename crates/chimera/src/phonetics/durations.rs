@@ -81,6 +81,15 @@ pub struct SegInfo {
     pub dur: Option<f64>,
 }
 
+/// Klatt's minimum duration (s) for a segment, as `klatt_durations` uses it: halved for an
+/// unstressed vowel. Below it a talker has to speed up or drop sounds.
+pub fn klatt_min(s: &Segment, info: SegInfo) -> f64 {
+    let fallback = info.dur.unwrap_or(0.08);
+    let (_, min) = table(&s.ipa).unwrap_or((1000.0 * fallback, 600.0 * fallback));
+    let half = info.vowel && s.stress.unwrap_or(0) == 0;
+    (if half { min * 0.5 } else { min }) / 1000.0
+}
+
 /// Durations (s) for one phrase of segments (explicit `dur` values are kept).
 pub fn klatt_durations(segs: &[Segment], info: impl Fn(&Segment) -> SegInfo) -> Vec<f64> {
     let n = segs.len();

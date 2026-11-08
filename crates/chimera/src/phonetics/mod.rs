@@ -11,6 +11,7 @@ pub mod english;
 pub mod inventory;
 pub mod ipa;
 pub mod planner;
+pub mod rap;
 pub mod sing;
 pub mod songs;
 pub mod syllables;

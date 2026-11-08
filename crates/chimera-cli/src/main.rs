@@ -7,6 +7,7 @@ mod calibrate;
 mod compare;
 mod diagnose;
 mod js;
+mod rap;
 mod render;
 mod wav;
 
@@ -24,6 +25,10 @@ usage: chimera <command> [args] [--float]
   render beatbox [outdir] [preset name | pattern] [male|female|child] [bpm] [bars]
   render creature [creatureId] [outdir]
   render vowels  [male|female|child] [out]
+  render rap     <out> <score.json> [male|female|child] [--timing even|klatt] [--speedup x]
+                 [--base-hz hz] [--dump]  (timed words as tools/performance takes them; klatt puts
+                 vowel onsets on the beats; --speedup moves articulators up to x faster in short sounds)
+  rap score      <out.json> [bpm] [syllables per beat] [hz] [\"line / line\"]  (a test score on a grid)
   diagnose       [outdir]
   compare csd    [csd-dir] [outdir] [--songs a|b|all|en001a,…] [--body female] [--jobs n]
                  [--against earlier/score.json]  (score.json: distance to the singer, and the verdict)
@@ -104,9 +109,11 @@ fn run(args: Vec<String>) -> Result<(), String> {
                 "beatbox" => render::beatbox(&ctx, rest),
                 "creature" => render::creature(&ctx, rest),
                 "vowels" => render::vowels(&ctx, rest),
+                "rap" => rap::render(&ctx, rest),
                 _ => Err(format!("unknown render kind {kind:?}\n\n{USAGE}")),
             }
         }
+        ["rap", "score", ..] => rap::score(&args[2..]),
         ["compare", "csd", ..] => compare::csd(&ctx, &args[2..]),
         ["diagnose", ..] => diagnose::run(&ctx, &args[1..]),
         ["calibrate", "vowels", ..] => calibrate::vowels(&args[2..]),

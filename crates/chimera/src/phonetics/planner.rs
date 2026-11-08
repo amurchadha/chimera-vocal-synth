@@ -5,7 +5,7 @@
 //! The planners allocate and run off the audio thread. [`oral_gestures_into`] (used by the beat
 //! sequencer) builds into a caller's `Vec` and allocates nothing once it has capacity.
 
-use super::durations::{SegInfo, klatt_durations};
+use super::durations::{SegInfo, klatt_durations, klatt_min};
 use super::inventory::{Glottal, Manner, PhonemeDef, Voicing, phoneme};
 use super::{Intonation, Plan, PlannedSegment, Segment};
 use crate::anatomy::human::{ArticKey, ArticPatch, BodyMix, BodyName};
@@ -138,6 +138,11 @@ pub struct PlanOptions {
     /// fit short notes. Speech and live notes leave it unset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sung: Option<bool>,
+    /// fast talking (rap): a segment shorter than its Klatt minimum moves its articulators faster,
+    /// by min/dur up to this factor, as fast talkers do instead of only cutting movements short.
+    /// Unset: articulator speeds don't depend on duration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speedup: Option<f64>,
 }
 
 /// JS truthiness of an optional number (`if (s.f0)`: 0 and NaN are false).
@@ -170,6 +175,8 @@ struct Seg<'a> {
     def: Option<PhonemeDef>,
     vowel: Option<ArticPatch>,
     glide_from: bool,
+    /// Klatt minimum duration (s), shared like the duration when a diphthong splits
+    min: f64,
 }
 
 #[derive(Clone, Copy)]
@@ -178,17 +185,21 @@ struct Span {
     t1: f64,
 }
 
+/// What the Klatt duration rules need to know about a segment.
+pub fn seg_info(s: &Segment, body: BodyMix) -> SegInfo {
+    if is_vowel(&s.ipa, body) {
+        return SegInfo { vowel: true, ..Default::default() };
+    }
+    let d = phoneme(&s.ipa, body);
+    SegInfo { vowel: false, manner: d.map(|d| d.manner), voiced: Some(d.is_some_and(|d| d.voicing == Voicing::Voiced)), dur: d.map(|d| d.dur) }
+}
+
 pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
     let rate = o.rate.unwrap_or(1.0);
     let body = o.body;
     // durations by the Klatt rules, on whole segments (diphthongs before they are split)
-    let durs = klatt_durations(input, |s| {
-        if is_vowel(&s.ipa, body) {
-            return SegInfo { vowel: true, ..Default::default() };
-        }
-        let d = phoneme(&s.ipa, body);
-        SegInfo { vowel: false, manner: d.map(|d| d.manner), voiced: Some(d.is_some_and(|d| d.voicing == Voicing::Voiced)), dur: d.map(|d| d.dur) }
-    });
+    let durs = klatt_durations(input, |s| seg_info(s, body));
+    let mins: Vec<f64> = input.iter().map(|s| klatt_min(s, seg_info(s, body))).collect();
     // expand diphthongs into two vowel targets sharing the duration
     let mut segs: Vec<Seg> = Vec::with_capacity(input.len() + 4);
     for (si, s) in input.iter().enumerate() {
@@ -196,10 +207,11 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
             let base = durs[si];
             for (i, p) in parts.iter().enumerate() {
                 let dur = if parts.len() > 1 { base * (if i == 0 { 0.55 } else { 0.45 }) } else { base };
-                segs.push(Seg { ipa: p, dur: Some(dur), stress: s.stress, f0: s.f0, def: None, vowel: None, glide_from: i > 0 });
+                let min = mins[si] * if parts.len() > 1 { if i == 0 { 0.55 } else { 0.45 } } else { 1.0 };
+                segs.push(Seg { ipa: p, dur: Some(dur), stress: s.stress, f0: s.f0, def: None, vowel: None, glide_from: i > 0, min });
             }
         } else {
-            segs.push(Seg { ipa: &s.ipa, dur: Some(durs[si]), stress: s.stress, f0: s.f0, def: None, vowel: None, glide_from: false });
+            segs.push(Seg { ipa: &s.ipa, dur: Some(durs[si]), stress: s.stress, f0: s.f0, def: None, vowel: None, glide_from: false, min: mins[si] });
         }
     }
     for s in segs.iter_mut() {
@@ -234,6 +246,14 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
         t += d;
     }
     let end = t;
+    // fast talking: how much faster each segment's articulators move (1 = as usual)
+    let boost = |i: usize| -> f64 {
+        let dur = times[i].t1 - times[i].t0;
+        match o.speedup {
+            Some(max) if max > 1.0 && dur > 0.0 && segs[i].min > dur => js_min(max, segs[i].min / dur),
+            _ => 1.0,
+        }
+    };
     // ---- vowel gestures: overlap neighbours so the tongue travels vowel-to-vowel
     let v_idx: Vec<usize> = segs.iter().enumerate().filter(|(_, s)| s.vowel.is_some()).map(|(i, _)| i).collect();
     for (n, &i) in v_idx.iter().enumerate() {
@@ -244,7 +264,9 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
         // the next vowel at the release and the transitions carry the consonant's place
         let r_in = js_max(0.03, 0.75 * (times[i].t0 - prev)) + 0.01;
         let r_out = js_max(0.03, 0.4 * (next - times[i].t1)) + 0.01;
-        gestures.push(Gesture::new(times[i].t0, times[i].t1, r_in, r_out, 1.0, artic_targets(segs[i].vowel.as_ref().unwrap())).label(segs[i].ipa));
+        let g = Gesture::new(times[i].t0, times[i].t1, r_in, r_out, 1.0, artic_targets(segs[i].vowel.as_ref().unwrap())).label(segs[i].ipa);
+        let b = boost(i);
+        gestures.push(if b > 1.0 { g.speed(b) } else { g });
     }
     // utterance-initial/final consonants: lend them the nearest vowel's body posture
     // ---- consonant gestures
@@ -261,7 +283,8 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
         let Some(def) = s.def.as_ref() else { continue };
         let next_vowel = i < segs.len() - 1 && segs[i + 1].vowel.is_some();
         let prev_seg = if i > 0 { Some(&segs[i - 1]) } else { None };
-        let mut add_oral = |tg: &ArticPatch, a: f64, b: f64, speed: f64, label: &str| oral_gestures_into(def, tg, a, b, speed, label, &mut gestures);
+        let fast = boost(i);
+        let mut add_oral = |tg: &ArticPatch, a: f64, b: f64, speed: f64, label: &str| oral_gestures_into(def, tg, a, b, speed * fast, label, &mut gestures);
         match def.manner {
             // a stop that closes behind another stop's closure, its articulator already placed by
             // the segment before that (the tip raised for /ɹ/ in "sharp tree"), reaches contact
