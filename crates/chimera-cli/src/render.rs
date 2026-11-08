@@ -360,7 +360,7 @@ pub const TELE_VERSION: u32 = 1;
 /// flow (nPh+nOr), glottalArea (nScope), glottalFlow (nScope); no gesture labels.
 /// Frame i is the state at sample i·hop (frame 0 before any sound); its RMS levels cover the hop
 /// before it. A last partial hop gets no frame.
-struct TeleRecorder {
+pub(crate) struct TeleRecorder {
     t: VoiceTelemetry,
     data: Vec<f32>,
     frames: u32,
@@ -406,7 +406,7 @@ impl TeleRecorder {
         debug_assert_eq!(self.data.len(), self.frames as usize * self.frame_len());
     }
 
-    fn bytes(&self, body: BodyMix) -> Vec<u8> {
+    pub(crate) fn bytes(&self, body: BodyMix) -> Vec<u8> {
         let mut b = Vec::with_capacity(48 + 4 * self.data.len());
         b.extend_from_slice(b"CHTL");
         for x in [TELE_VERSION, FS as u32, TELE_HOP as u32, self.frames, self.frame_len() as u32, N_ARTIC as u32, self.n_ph as u32, self.n_or as u32, TELE_SCOPE as u32] {
@@ -427,7 +427,7 @@ impl TeleRecorder {
 /// every `TELE_HOP` samples (`tele`). The two cadences are independent; taking telemetry is the
 /// only thing that resets its RMS levels. The voice runs sample by sample, so the sound is the
 /// same either way.
-fn render_tracked(v: &mut HumanVoice, out: &mut [f32], artic: bool, tele: bool) -> Result<(Vec<Vec<f64>>, Option<TeleRecorder>), String> {
+pub(crate) fn render_tracked(v: &mut HumanVoice, out: &mut [f32], artic: bool, tele: bool) -> Result<(Vec<Vec<f64>>, Option<TeleRecorder>), String> {
     let a_hop = FS as usize / ARTIC_RATE;
     let frame = |v: &HumanVoice| ArticKey::ALL.iter().map(|k| js_round(v.artic.x.get(*k) * 1e4) / 1e4).collect();
     let mut frames = if artic { vec![frame(v)] } else { Vec::new() };

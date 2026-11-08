@@ -2,7 +2,7 @@
 //! engine) and `chimera rap score` (a test score on a beat grid).
 
 use crate::js::fixed;
-use crate::render::g2p;
+use crate::render::{g2p, render_tracked};
 use crate::{Ctx, FS, arg, body, wav_name};
 use chimera::math::js_round;
 use chimera::phonetics::Intonation;
@@ -33,7 +33,8 @@ fn take_opt(a: &mut Vec<String>, name: &str) -> Option<String> {
 }
 
 /// `render rap <out> <score.json> [male|female|child] [--timing even|klatt] [--speedup x]
-/// [--base-hz hz] [--dump]`
+/// [--base-hz hz] [--tele voice.tele] [--dump]`. `--tele` also records the voice's telemetry, which
+/// tools/performance/render-new.mjs draws the vocal tract from.
 pub fn render(ctx: &Ctx, a: &[String]) -> Result<(), String> {
     let mut a = a.to_vec();
     // even measured better than klatt on tools/rap/rap_wer.py (40 vs 50 % at natural timing)
@@ -44,6 +45,7 @@ pub fn render(ctx: &Ctx, a: &[String]) -> Result<(), String> {
     };
     let speedup: Option<f64> = take_opt(&mut a, "--speedup").map(|s| s.parse().map_err(|_| "--speedup must be a number")).transpose()?;
     let base_hz: Option<f64> = take_opt(&mut a, "--base-hz").map(|s| s.parse().map_err(|_| "--base-hz must be a number")).transpose()?;
+    let tele_out = take_opt(&mut a, "--tele");
     let dump = a.iter().any(|x| x == "--dump");
     a.retain(|x| x != "--dump");
     let name = arg(&a, 0, "out/rap");
@@ -133,11 +135,13 @@ pub fn render(ctx: &Ctx, a: &[String]) -> Result<(), String> {
     }
     let end = plans.iter().map(|p| p.end).fold(last_end, f64::max) + 0.35;
     let mut out = vec![0f32; js_round(FS * end) as usize];
-    for block in out.chunks_mut(128) {
-        voice.render(block);
-    }
+    let (_, rec) = render_tracked(&mut voice, &mut out, false, tele_out.is_some())?;
     let file = wav_name(name);
     ctx.write_wav(&file, &out)?;
+    if let (Some(path), Some(rec)) = (&tele_out, rec) {
+        std::fs::write(path, rec.bytes(body_name.into())).map_err(|e| format!("{path}: {e}"))?;
+        println!("wrote {path}");
+    }
     println!("wrote {file}  {} s", fixed(end, 2));
     if !overfull.is_empty() {
         println!("too fast to say in full (respell with \"pronunciation\"): {}", overfull.join(", "));
