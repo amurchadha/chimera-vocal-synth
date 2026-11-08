@@ -1711,3 +1711,46 @@ of the build without it: 1.584 training, 1.706 held-out (male 1.0, female 2.2).
     singer's level bands are scored.
   - Experiment 24's teeth gain at 3.5e-6 broke only female level g (2.03 → 2.59), which is now
     1.39 here; retried on this base, that term has room.
+
+### 26. The teeth (obstacle) source's band follows the jet's v/D, not one fixed 5 kHz (reverted)
+
+- Hypothesis: the male's largest sibilant costs are the /s z/ centroids (s 4229 Hz against the
+  men's 5725, cost 2.71; z 3889 against 5117, 3.14), and the female's are the same plus her /ʃ/
+  (s 4728/7414, z 4062/7072, ʃ 3350/4045). Every jet that reaches the incisors got the same noise
+  band (white, high-passed at 1.2 kHz, two poles at 5 kHz), the male /ʃ/'s. A turbulent jet's
+  noise spectrum scales with v/D (a Strouhal number; Stevens 1971), and through a constriction
+  that takes most of the pressure drop v is about the same whatever its size, so the band should
+  follow 1/D ∝ 1/√A: an /s/ (0.085 cm²) brighter than an /ʃ/ (0.2 cm²), a smaller body's jets
+  brighter than a larger one's. Lead 6's band table shows both voices' /s/ short of energy above
+  5 kHz.
+- Change: `crates/chimera/src/voice/human_airway.rs`, the teeth source's low-pass is
+  `5000·√(0.2/A)` Hz at the narrowest section A (so the male /ʃ/, the calibration target 0.2 cm²,
+  keeps 5 kHz), capped at 10 kHz (its value at 0.05 cm², so a stop's first opening has a bounded
+  band); its gain unchanged. One value. Probes (/ˈɑ_ɑ/, middle half, 1–10 kHz centroid; male, then
+  female): /s/ 5189 → 5474 and 5675 → 6056 Hz, +2.4 and +3.4 dB; /z/ 5147 → 5278 and 4619 →
+  5074; /tʃ/ 3076 → 3299 and 3117 → 3457; /ʃ/ 3080 → 3056 and 3225 → 3263; θ, the /t d/ bursts
+  within 0.5 dB. Tried while probing, not judged: the same band with the source's power held
+  (gain × √(5000/f)): the same centroids, about 1–2 dB quieter; and a teeth low-pass of 8 and 12
+  kHz for every jet: the /ʃ/ centroid rises faster than the /s/'s (male /ʃ/ 3080 → 3456 → 3810),
+  as experiment 23 found.
+- Real speakers (TSP): training 1.517 → 1.351 (−0.166), held-out 1.631 → 1.451, but **WORSE**:
+  two terms broke, both male affricate centroids.
+  - Male 0.974 → 0.935 (held-out 1.025 → 0.911): centroid z 3.14 → 2.20 (3889 → 4139 Hz), s 2.71
+    → 2.16 (4229 → 4421), ʃ 0.77 → 0.67, level p 1.60 → 1.08, level tʃ 4.27 → 3.90, duration z
+    2.16 → 1.89, level s 0.22 → 0, duration tʃ 1.66 → 1.47. Broke: **centroid tʃ 0.30 → 0.91**
+    (3725 → 3932 Hz, men 3320) and **centroid dʒ 0 → 0.57** (2880 → 3566, men 3072). Against
+    too: burst d 0.46 → 0.88 (−8.2 → −7.6 dB).
+  - Female 2.059 → 1.768 (held-out 2.238 → 1.991): sibilants 3.73 → 2.98. Centroid s 4.50 → 3.52
+    (4728 → 5124 Hz), dʒ 3.71 → 2.79, z 7.37 → 6.65, tʃ 0.89 → 0.22 (3392 → 3596), ʃ 2.21 → 1.70
+    (3350 → 3449); level s 1.69 → 0.95, burst t 2.11 → 1.67, duration p 0.95 → 0.54, burst of
+    final stops 1.28 → 0.87, level t 1.87 → 1.55. Against: duration k 3.61 → 3.91, level ð 2.39
+    → 2.67.
+- Whisper, singer, bench, tests: not run. The deciding verdict failed.
+- Verdict: reverted. WORSE on two broken terms, though the training score falls by 0.166, the
+  largest step in the batch, and the held-out by 0.180.
+- Commit: none (log only).
+- Next: both breaks are the male affricates' second halves, the part TSP measures: the release's
+  opening jet (A small and growing, so a band up to 10 kHz) and then [h], not a held /ʃ ʒ/.
+  Experiment 23 holds the /ʃ/ constriction through that half, and alone it lowered the male
+  /tʃ/ centroid to 3369 Hz (cost 0) while its break was the female /tʃ/ centroid, which this
+  change raises (3392 → 3596). The two are complementary: experiment 27 tries them together.
