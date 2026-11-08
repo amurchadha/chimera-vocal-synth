@@ -271,11 +271,15 @@ pub struct HumanBody {
     pub tongue_radius: f64,
     /// max lip width (cm, before scale)
     pub lip_width: f64,
+    /// glottal pulse area relative to the adult male's (fold length × excursion). Women's folds are
+    /// about 0.67 of men's length (Hirano 1983) and their peak glottal flow about 0.64 of men's
+    /// (Holmberg et al. 1988): less than the 0.81 of the body scale squared.
+    pub folds: f64,
 }
 
-pub const BODY_MALE: HumanBody = HumanBody { name: "Adult male", scale: 1.0, pharynx: 1.0, tongue_radius: 2.25, lip_width: 4.6 };
-pub const BODY_FEMALE: HumanBody = HumanBody { name: "Adult female", scale: 0.9, pharynx: 0.88, tongue_radius: 2.2, lip_width: 4.4 };
-pub const BODY_CHILD: HumanBody = HumanBody { name: "Child", scale: 0.74, pharynx: 0.8, tongue_radius: 2.15, lip_width: 4.0 };
+pub const BODY_MALE: HumanBody = HumanBody { name: "Adult male", scale: 1.0, pharynx: 1.0, tongue_radius: 2.25, lip_width: 4.6, folds: 1.0 };
+pub const BODY_FEMALE: HumanBody = HumanBody { name: "Adult female", scale: 0.9, pharynx: 0.88, tongue_radius: 2.2, lip_width: 4.4, folds: 0.64 };
+pub const BODY_CHILD: HumanBody = HumanBody { name: "Child", scale: 0.74, pharynx: 0.8, tongue_radius: 2.15, lip_width: 4.0, folds: 0.74 * 0.74 };
 
 /// The three human bodies by their short names.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -377,6 +381,7 @@ impl BodyMix {
             pharynx: self.blend(|b| b.body().pharynx),
             tongue_radius: self.blend(|b| b.body().tongue_radius),
             lip_width: self.blend(|b| b.body().lip_width),
+            folds: self.blend(|b| b.body().folds),
         }
     }
 }

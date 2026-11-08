@@ -63,6 +63,8 @@ export interface HumanBody {
   tongueRadius: number;
   /** max lip width (cm, before scale) */
   lipWidth: number;
+  /** glottal pulse area relative to the adult male's (fold length × excursion) */
+  folds: number;
 }
 
 export interface ArticSpec {
