@@ -1403,3 +1403,32 @@ words.
 - Speed: 14.7 % of one core (`os=2`, this machine).
 - The rap work on this branch (`render rap --speedup/--lively/--reduce`) is opt-in and changes
   no speech or singing render (goldens unchanged).
+
+### 21. A voiceless stop is aspirated before the approximant of its onset cluster (reverted)
+
+- Hypothesis: the planner aspirated a voiceless stop only when a vowel follows it
+  (`aspirated = next_vowel && …`), so the /p/ of "planks" and the /k/ of "quiet" were released
+  with a 12 ms VOT into a voiced /l/ and /w/: [bl] and [gw]. Whisper heard "blanks" and
+  "glides"/"glazed"/"glad" at every offset, in both voices. In English a stop that begins an onset
+  cluster with /l ɹ w j/ is aspirated, and the aspiration devoices the approximant (Klatt 1975:
+  VOT before a sonorant is, if anything, longer than before a vowel).
+- Change: `crates/chimera/src/phonetics/planner.rs`: a voiceless stop is also aspirated (VOT
+  50 ms, as before a vowel) when it and the next segment, an approximant or lateral followed by a
+  vowel, make a legal onset (`syllables::is_onset`, the ONSETS list made public) and no word
+  boundary falls between them (`Seg` gets the input's `word_end`; "dark rope" keeps a coda /k/).
+  `sing.rs` marks a sung word's last segment `word_end`, so a coda before the next word's
+  approximant isn't aspirated in songs. One value (50 ms). The patch is in
+  `/Volumes/hd/tmp/e21-onset-cluster-aspiration.patch` (outside the repo).
+- Speech: word error rate 39.74 → 39.47 % (training, NO CLEAR CHANGE), 43.93 → 43.87 %
+  (held-out). Training rate at each offset: 38.74 to 40.73.
+  - "quiet" is heard at every offset in both voices (male "the glides fish" → "a quiet fish";
+    female 3.4 → 1.8).
+  - "planks" lost its [b] but not its error: "plangs" (male 6.0 → 5.8; female unchanged).
+  - Male "Some bright doors" became "A sunrise door" at every offset (4.2 → 4.8), and the male
+    "One tall cloud" lost "One" at one offset (0 → 0.4). Neither touches a changed cluster
+    ("bright", "cloud" and "truck" are heard as before).
+- Singer, bench, tests: not run. The deciding verdict failed.
+- Verdict: reverted. Speech is not BETTER: it fixes one word in two voices, about 0.7 points.
+- Commit: none (log only).
+- Next: the patch is right phonetics and costs nothing elsewhere (no cluster word got worse).
+  Keep it as a passenger for a change that moves more words, as experiment 17's "paints" is.
