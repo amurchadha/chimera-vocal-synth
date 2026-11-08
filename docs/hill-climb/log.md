@@ -1581,3 +1581,68 @@ of the build without it: 1.584 training, 1.706 held-out (male 1.0, female 2.2).
   /s/'s (male /ʃ/ 3.9 → 5.4 kHz at 20 kHz), so a wider teeth source alone would break the male
   centroid ʃ. The /s/ front cavity holds a 3.5 cm² chamber 1 cm in front of the constriction
   (the region the `ahead` law covers), which a laminal /s/ with the tip down wouldn't have.
+
+### 24. The teeth (obstacle) source is too weak against the jet: sibilants barely above /f/ (reverted)
+
+- Hypothesis: TSP's speakers put the sibilants far above /f/: men /ʃ/ −8.9 and /s/ −9.0 dB re
+  their stressed vowels against /f/ −23.6 (women −7.0, −10.9, −24.0). The synth doesn't: male
+  /ʃ/ −14.7 (cost 2.51) and /tʃ/ −18.8 (4.27), female /ʃ/ −23.2 (8.80), /tʃ/ −25.8 (10.38), /s/
+  −21.5 (2.07). Experiment 13 found that the obstacle source (the jet striking the incisors,
+  Shadle 1985) adds only 9–10 dB over the jet source, so /ʃ/ is no louder than /f/ in either
+  voice. It doubled the gain, and the singer's note MCD sank it with 0.008 dB of headroom. TSP
+  measures these levels directly, and batch 3's singer guard is the training score (+0.05).
+- Change: `NoiseGains.teeth` 3.0e-6 → X in `crates/chimera/src/voice/human_airway.rs`, smaller
+  steps than experiment 13's 6e-6. Probe at 4.5e-6 (male and female /ˈɑ_ɑ/, middle half re the
+  first vowel): male /s/ −10.4 → −7.0, /ʃ/ −14.2 → −10.8, /tʃ/ −18.6 → −15.5, /t/ burst −6.0 →
+  −3.2; /d/ burst, /f/, /p/, /k/ unchanged. Female /s/ −20.5 → −17.2, /ʃ/ −23.6 → −20.2, /tʃ/
+  −28.4 → −25.5, /t/ burst −15.3 → −13.6. Two values judged:
+  - **4.0e-6**: training 1.584 → 1.553 (−0.031), held-out 1.706 → 1.684, but **WORSE**: three
+    terms broke.
+    - Male 0.974 → 0.916: level ʃ 2.51 → 1.09 (−14.7 → −12.3 dB), level tʃ 4.27 → 3.21, level s
+      0.22 → 0, level p 1.60 → 1.00, duration z 2.16 → 1.75, centroid ʃ 0.77 → 0.39, centroid
+      tʃ 0.30 → 0. Broke: **burst d 0.46 → 0.96** (tip releases get the obstacle noise too) and
+      **level θ 0.30 → 0.92** (−19.4 → −17.3 dB: the dental jet sits in `w_dist`'s near fade,
+      0.15–0.5 cm behind the teeth, so it gets part of the gain). Against: centroid z 3.14 → 3.41.
+    - Female 2.194 → 2.189: level ʃ 8.80 → 7.35, s 2.07 → 1.41, burst t 2.87 → 2.31, level tʃ
+      10.38 → 9.98, level dʒ 1.83 → 1.43. Broke: **duration k 3.37 → 4.14** (MFA gives more of
+      the /sk/ and /ks/ clusters to the louder /s/). Against: centroid ʃ 2.24 → 2.49, tʃ 0.99 →
+      1.31 (more weight on her low /ʃ/ resonance).
+  - **3.5e-6**: training 1.584 → 1.559 (−0.025), held-out 1.706 → 1.695, **WORSE**: one term
+    broke, **female level g 2.03 → 2.59** (−27.1 → −28.4 dB). No /g/ jet reaches the teeth, so
+    that is the alignment moving.
+    - Male 0.974 → 0.942: level ʃ 2.51 → 1.76, level p 1.60 → 1.00, level tʃ 4.27 → 3.92,
+      duration v 0.63 → 0.29, duration z 2.16 → 1.89, duration k 3.58 → 3.35, centroid tʃ 0.30
+      → 0.04, centroid ʃ 0.77 → 0.57, level s 0.22 → 0. Against: centroid z 3.14 → 3.40, level θ
+      0.30 → 0.65, centroid s 2.71 → 2.76.
+    - Female 2.194 → 2.176: level ʃ 8.80 → 8.07, s 2.07 → 1.76, burst t 2.87 → 2.58, duration
+      k 3.37 → 3.10 (the term that broke at 4.0e-6), level dʒ 1.83 → 1.59, centroid z 7.58 →
+      7.41. Against: level g, centroid ʃ 2.24 → 2.34, centroid tʃ 0.99 → 1.18.
+- Whisper, singer, bench, tests: not run. Neither value passed the deciding verdict.
+- Verdict: reverted. Both values are WORSE on broken terms, though both lower the training
+  score (−0.031, −0.025) and the held-out one.
+- Commit: none (log only).
+- Next:
+  - The gain is right for the levels, and its breaks are side effects: θ through `w_dist`'s near
+    fade, the /d/ burst, and alignment terms (female duration k breaks at 4.0e-6 but improves at
+    3.5e-6; level g breaks at 3.5e-6). A term that moves the wrong way and then back between two
+    close values is the aligner. Retry with the obstacle weight cut for a dental jet (`behind`
+    under 0.5 cm), which would keep θ out of it.
+  - The sibilant spectra are the bigger error, and a louder obstacle source puts more weight on
+    them. Mean band levels (dB re 1–10 kHz) in the middle half, TSP training lists, synth from
+    `out/tsp/best`, real from the TSP recordings:
+
+    | | 1–2k | 2–3k | 3–4k | 4–5k | 5–6k | 6–8k | 8–10k |
+    |---|---|---|---|---|---|---|---|
+    | male /ʃ/ synth | −9.1 | −4.0 | −10.0 | −12.8 | −13.5 | −9.0 | −14.8 |
+    | male /ʃ/ real | −15.4 | −3.9 | −6.6 | −13.7 | −13.7 | −13.1 | −22.1 |
+    | female /ʃ/ synth | −13.0 | −2.5 | −9.0 | −13.7 | −16.6 | −16.8 | −11.0 |
+    | female /ʃ/ real | −22.9 | −11.6 | −3.1 | −9.5 | −11.3 | −12.3 | −20.7 |
+    | male /s/ synth | −20.5 | −10.8 | −5.3 | −8.6 | −12.0 | −11.1 | −13.7 |
+    | male /s/ real | −22.0 | −21.4 | −12.1 | −7.5 | −8.2 | −7.6 | −10.0 |
+    | female /s/ synth | −23.8 | −14.2 | −6.7 | −6.8 | −10.3 | −10.2 | −12.5 |
+    | female /s/ real | −25.5 | −25.0 | −20.7 | −15.2 | −10.5 | −5.1 | −5.0 |
+
+    The female /ʃ/ resonance is about 1 kHz low: 2–3 kHz against her 3–4 kHz. Her front cavity
+    is too long by about 1 cm, or its 2.9 cm² chamber is too big. Both voices' /s/ peaks at
+    3–5 kHz where real /s/ is flat or rising to 10 kHz, so the /s/ front cavity resonates about
+    an octave low. The male /ʃ/ is close except for its 6–10 kHz excess.
