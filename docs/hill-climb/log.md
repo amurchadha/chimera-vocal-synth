@@ -141,6 +141,12 @@ opens a new one, update this list and give the experiment's number.
      heard in both voices, but NO CLEAR CHANGE; the patch waits as a passenger. Experiment 22
      kept a narrower, backed /w/ (male F2 about 990 → 700 Hz): speech 39.74 → 38.08 %. Open: the
      dark /l/ of "cold" (F2 1320, F3 about 1930 Hz in a probe), heard as "coated" in both voices.
+   - Batch 3 under the real-speaker judge (TSP). Experiment 23 (experiment 15's affricate patch)
+     helps every male affricate term but breaks the female centroid tʃ: her /ʃ/ resonance is
+     about 1 kHz low (experiment 24's band table). Experiment 24 (teeth gain 3.5–4.0e-6) lowers
+     the score but breaks θ, the /d/ burst or alignment terms. Experiment 25 kept the female
+     pulse at her fold size (0.64 of the male's): every female obstruent about 1.8 dB louder
+     against her vowels, TSP 1.584 → 1.517.
 
 7. **Stressed vowels in running speech (target 2).** The planned durations are not what
    crushes them. Experiment 14 printed `plan_phrases`' segments: the stressed /ʊ/ of "pushes" is
@@ -1646,3 +1652,62 @@ of the build without it: 1.584 training, 1.706 held-out (male 1.0, female 2.2).
     is too long by about 1 cm, or its 2.9 cm² chamber is too big. Both voices' /s/ peaks at
     3–5 kHz where real /s/ is flat or rising to 10 kHz, so the /s/ front cavity resonates about
     an octave low. The male /ʃ/ is close except for its 6–10 kHz excess.
+
+### 25. The female glottal pulse follows her fold size, not the body scale squared (kept)
+
+- Hypothesis: the female's obstruents sit much further below her vowels than real women's do
+  (TSP: level ʃ −23.2 dB against −7.0, tʃ −25.8 against −8.8, h −29.8 against −16.1, t −25.3
+  against −16.8; burst k −21.7 against −12.9). Experiment 13 split the gap between the body and
+  the source. The source half: her glottal pulse is 0.17·k² cm², 0.81 of the male's, where real
+  female peak glottal flow is about 0.64 of the male's (Holmberg et al. 1988), with folds about
+  0.67 of his length (Hirano). Her vowels are too loud for her folds, and the output gain's level
+  match then pushes her frication down. The turbulence sources don't follow the pulse (a
+  voiceless consonant's flow is set by the abduction and the constriction), so a smaller pulse
+  with the gain re-levelled lifts every female obstruent against her vowels. The male is
+  untouched, so his terms can't break.
+- Change: `HumanBody.folds`, the glottal pulse area relative to the adult male's
+  (`crates/chimera/src/anatomy/human.rs`): male 1.0, female 0.64, child 0.74² (unchanged), blended
+  like the other body parameters. `voice/human_voice.rs`: the pulse amplitude is `0.17·folds`
+  (was `0.17·scale²`), and the output gain is multiplied by `scale²/folds` to keep the vowel level.
+  Abduction and the posterior chink still scale with `scale²`. `src/wasm/types.ts`: the field.
+  One value. Probe, /ˈɑ_ɑ/ middle half re the first vowel, female: /s ʃ tʃ t k g h/ up 1.8–1.9 dB,
+  /z/ 1.0, /ð/ 0.8, /v/ 0.2; the vowels themselves +0.15 dB. Male and child renders are
+  bit-identical.
+- Real speakers (TSP): training 1.584 → **1.517 (BETTER)**, held-out 1.706 → 1.631.
+  - Male 0.974 → 0.974 (identical).
+  - Female 2.194 → 2.059. Level group 1.802 → 1.494, sibilants 3.823 → 3.735, timing 0.957 →
+    0.949. Level ʃ 8.80 → 7.83 (−23.2 → −21.6 dB), tʃ 10.38 → 9.57, burst k 3.30 → 2.46,
+    burst t 2.87 → 2.11, level t 2.58 → 1.87, level g 2.03 → 1.39, burst d 1.09 → 0.48, level h
+    4.71 → 4.11, level d 2.12 → 1.52, level f 0.75 → 0.17, level k 1.73 → 1.19, burst g 0.49 →
+    0, level s 2.07 → 1.69, duration tʃ 2.27 → 1.93, centroid z 7.58 → 7.37. Against: duration p
+    0.64 → 0.95, duration n 1.13 → 1.44, duration k 3.37 → 3.61, level w 0.80 → 1.04, duration θ
+    1.88 → 2.09, level v 1.05 → 1.19, duration f 1.21 → 1.34. No term rose by more than 0.31.
+  - Diagnostic, not scored: the vowels' tilt is steeper. Band 1–2 kHz −16.3 → −17.1 dB re the
+    vowel (women −10.8), 2–4 kHz −22.6 → −23.3 (women −16.4); voice group 0.654 → 0.767. A
+    smaller pulse against an unchanged chink is a breathier source.
+- Speech (Whisper, guard): training 39.74 → 38.48 % (NO CLEAR CHANGE, so not WORSE), held-out
+  43.93 → 43.33 %. Harvard female 47.0 → 44.0, nonsense female 39.72 → 37.75, male unchanged.
+  The female "hogs were fed chopped corn" is now heard after "haggard" (3 → 2). "Thrown" and
+  "late" each slip by part of a word.
+- Singer (guard): training 0.587 → 0.582 (−0.003 like for like, NO CLEAR CHANGE), held-out 0.811
+  → 0.805. No guard broken: 0 notes off time, 0 dropped gestures, note MCD 8.614 → 8.580 dB,
+  envelope correlation 0.811 → 0.813, pitch error 4.85 → 4.86 cents. Level 4–8 kHz 0.52 → 0.34
+  (the songs' vowels are darker too, which here is toward her), H1−H2 2.30 → 2.32.
+- Speed: `os=2` 14.9 % (baseline 14.7 %, load average 13). The change is a constant.
+- Tests: fixtures blessed twice (only `voice-speech-female-96k.f32` changes), then `cargo test
+  --workspace` 116 pass, `bun run test` 30 pass, `bun run typecheck` and `bun run build` clean.
+  Fixtures restored. `bun tools/e2e.ts` (for the `src/wasm/` type) times out clicking the Sing
+  radio, identically at HEAD, so that failure is older than this change.
+- Verdict: kept. `out/hill/best` and `out/tsp/best` are this run; the old ones are in
+  /Volumes/hd/tmp/aside-10-31/.
+- Commit: ec61c00.
+- Next:
+  - Retry experiment 23 (affricate frication held to the folds' closure) on top of this. Its
+    break, female centroid tʃ, barely moves here (0.99 → 0.89), so it would likely still break.
+    The female /ʃ/ resonance is the blocker (experiment 24's band table: 2–3 kHz against her
+    3–4 kHz).
+  - The steeper female vowel tilt: scaling the chink with `folds` instead of `scale²` would test
+    whether it's the leak. The female spectrum and voice groups are diagnostic in TSP, but the
+    singer's level bands are scored.
+  - Experiment 24's teeth gain at 3.5e-6 broke only female level g (2.03 → 2.59), which is now
+    1.39 here; retried on this base, that term has room.
