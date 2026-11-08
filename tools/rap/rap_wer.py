@@ -4,7 +4,10 @@ syllables a second), rendered with `chimera render rap` and transcribed with fas
 (small.en, greedy, as tools/asr/speech_wer.py) at five start offsets, and the word errors are
 averaged.
 
-usage: rap_wer.py <outdir> [--timing even|klatt] [--speedup x] [--body male] [--against earlier/rap.json]
+usage: rap_wer.py <outdir> [--engine new|old] [--timing even|klatt] [--speedup x] [--body male]
+                  [--against earlier/rap.json]
+--engine old renders with tools/performance/voice-only.mjs: the TypeScript voice the performance
+renderer uses (set CHIMERA_TS_ENGINE as its README says; male only, its own timing).
 RAP_RATES=natural,eighths,... picks the rates ("natural": Klatt speech timing, a control).
 
 The verses are our own and not in any song, so Whisper can't fill words in from memory.
@@ -66,6 +69,7 @@ def main():
     args = sys.argv[1:]
     timing = opt(args, "--timing", "even")
     speedup = opt(args, "--speedup", None)
+    engine = opt(args, "--engine", "new")
     body = opt(args, "--body", "male")
     against = opt(args, "--against", None)
     out = args[0]
@@ -77,11 +81,14 @@ def main():
     def render(job):
         rate, _, text, _, stem = job
         subprocess.run([chimera, "rap", "score", stem + ".json", str(BPM), str(RATES[rate]), "110", text], check=True, capture_output=True)
-        cmd = [chimera, "render", "rap", stem, stem + ".json", body, "--timing", timing] + (["--speedup", speedup] if speedup else [])
+        if engine == "old":
+            cmd = ["bun", os.path.join(REPO, "tools/performance/voice-only.mjs"), stem + ".json", stem + ".wav"]
+        else:
+            cmd = [chimera, "render", "rap", stem, stem + ".json", body, "--timing", timing] + (["--speedup", speedup] if speedup else [])
         r = subprocess.run(cmd, check=True, capture_output=True, text=True)
         return [l.split(": ", 1)[1] for l in r.stdout.splitlines() if l.startswith("too fast")]
 
-    with ThreadPoolExecutor(max_workers=os.cpu_count()) as ex:
+    with ThreadPoolExecutor(max_workers=4 if engine == "old" else os.cpu_count()) as ex:
         overfull = list(ex.map(render, jobs))
     model = WhisperModel("small.en", device="cpu", compute_type="int8")
     rows = []
@@ -104,10 +111,10 @@ def main():
         for part in ("train", "held"):
             r = [x for x in rows if x["rate"] == rate and x["set"] == part]
             summary[f"{rate}/{part}"] = round(100.0 * sum(x["errors"] for x in r) / max(1, sum(x["words"] for x in r)), 1)
-    result = {"timing": timing, "speedup": speedup, "body": body, "wer": summary, "rows": rows}
+    result = {"engine": engine, "timing": timing, "speedup": speedup, "body": body, "wer": summary, "rows": rows}
     json.dump(result, open(os.path.join(out, "rap.json"), "w"), indent=1)
     base = json.load(open(against))["wer"] if against else {}
-    print(f"timing {timing}, speedup {speedup or 'off'}, {body}: word error rate %")
+    print(f"engine {engine}" + ("" if engine == "old" else f", timing {timing}, speedup {speedup or 'off'}") + f", {body}: word error rate %")
     for k, v in summary.items():
         print(f"  {k:18s} {v:5.1f}" + (f"   (was {base[k]:5.1f})" if k in base else ""))
 
