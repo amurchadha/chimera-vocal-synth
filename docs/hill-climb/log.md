@@ -1524,3 +1524,21 @@ words.
     after a tap. Look at the /ɫ/ targets (tbX 1.9, tbY 6.8) and the lateral channel.
   - Experiment 21's onset-cluster aspiration can ride with a change like this one: with it,
     "quiet" was heard in both voices.
+
+### The real-speaker judge decides from here; experiment 22 re-judged (reverted)
+
+After experiment 22, the original repo's `chimera compare tsp` was merged (45880cf). Its owner
+found batch 2 harder to hear although Whisper scored it 4 points better, so from experiment 23
+this batch is judged as follows:
+- **TSP decides:** BETTER against `out/tsp/best/score.json` (score down at least 0.01, no
+  scored term up more than 0.5).
+- **Whisper guards:** not WORSE against `out/hill/best/speech/wer.json`.
+- **The singer guards** as before.
+
+Experiment 22 under TSP, against the same build without it: **WORSE** (training 1.584 → 1.583,
+held-out 1.706 → 1.691, but four terms broke): male level w cost 0.68 → 3.35 (the narrower /w/
+dips too far below its vowels, as its entry feared), male duration w 0.38 → 1.35, female duration
+w 0.26 → 1.42, female level tʃ 10.38 → 11.03. Reverted (61b9e41). Whisper had called it
+BETTER by 0.16 points over its margin; the formant argument still stands, but the fix has to
+keep /w/'s level. `out/hill/best` is the batch baseline again; `out/tsp/best` is the TSP run
+of the build without it: 1.584 training, 1.706 held-out (male 1.0, female 2.2).
