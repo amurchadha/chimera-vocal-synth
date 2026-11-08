@@ -407,7 +407,13 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
             }
         }
         let r = if has_f0 && sung { pitch_ramp(t1 - t0) } else { 0.06 };
-        gestures.push(Gesture::new(t0, if has_f0 { t1 } else { hold }, r, r, if has_f0 { 6.0 } else { 1.0 }, one(ControlKey::F0, target)).label("pitch"));
+        // a given pitch also holds through the consonants up to the next vowel, except in a sung
+        // phrase (its consonants carry their own note's pitch, below) and a live note (open-ended).
+        // Ending it at the vowel let the pitch fall back to the source's between syllables: with
+        // words at 150 Hz over a 125 Hz source, every syllable dipped and snapped back (a rap
+        // line's wobble).
+        let until = if has_f0 && (sung || open_end) { t1 } else { hold };
+        gestures.push(Gesture::new(t0, until, r, r, if has_f0 { 6.0 } else { 1.0 }, one(ControlKey::F0, target)).label("pitch"));
     }
     // sung: a consonant given its note's pitch holds it, so the pitch moves during an onset
     // consonant and has arrived when the vowel starts
