@@ -1542,3 +1542,42 @@ w 0.26 → 1.42, female level tʃ 10.38 → 11.03. Reverted (61b9e41). Whisper h
 BETTER by 0.16 points over its margin; the formant argument still stands, but the fix has to
 keep /w/'s level. `out/hill/best` is the batch baseline again; `out/tsp/best` is the TSP run
 of the build without it: 1.584 training, 1.706 held-out (male 1.0, female 2.2).
+
+### 23. Experiment 15 again under the real-speaker judge: an affricate's frication is its VOT (reverted)
+
+- Hypothesis: the male's two largest TSP costs after /dʒ/'s length are affricates: level tʃ
+  −18.8 dB re his stressed vowels against the men's −10.9 (cost 4.27) and duration tʃ 1.16
+  against 1.52 (1.66). TSP measures an affricate's level on its second half, the frication.
+  Experiment 15 found why that half is weak: the planner releases the /ʃ/ constriction about
+  20 ms before the span ends (a closing gesture's latency lead) while the folds stay apart for a
+  stop's aspiration, so 35–40 ms of /ʃ/ is followed by about 50 ms of [h]. In a real /tʃ/ the
+  frication is the voice onset time. Whisper had called experiment 15 NO CLEAR CHANGE; this
+  judge measures the frication directly.
+- Change: experiment 15's patch (A + allowance), on the current planner. `planner.rs`: the
+  aspiration test and VOT (with the rap work's squeeze) computed once per consonant; a voiceless
+  affricate's /ʃ/ gesture held to `t1 + 0.4·VOT + 0.02` (the aspiration hold, the closing lead
+  added back), a voiced one's to `t1 + 0.02`. `durations.rs`: a stressed vowel after a voiceless
+  affricate gets the 20 ms aspiration allowance a voiceless stop's gets. One value. Probe, male
+  /ˈɑtʃɑ/: frication 0.30–0.36 s at about −14 dB re the vowel, then about 10 ms to voicing, as
+  experiment 15 measured.
+- Real speakers (TSP): training 1.584 → 1.595 (**WORSE**), held-out 1.706 → 1.691.
+  - Male 0.974 → **0.933**: level tʃ 4.27 → 2.21 (−18.8 → −15.7 dB), duration tʃ 1.66 → 0.75,
+    duration dʒ 4.23 → 3.69, centroid tʃ 0.30 → 0, spectrum tʃ (diagnostic) 2.62 → 1.90. Against:
+    centroid z 3.14 → 3.40 (3889 → 3822 Hz; no /z/ changed, so alignment moves in nearby phones).
+  - Female 2.194 → 2.258: level tʃ 10.38 → 9.48 (−25.8 → −24.5 dB), but **centroid tʃ 0.99 →
+    1.99** (3359 → 3076 Hz, women 4006), the term that breaks. Her /tʃ/'s second half is now her
+    /ʃ/, whose centroid is already low (3341 Hz, women 4045; lead 6). The [h] it replaced sat
+    higher. Centroid s 4.50 → 4.66 too.
+- Whisper, singer, bench, tests: not run. The deciding verdict failed.
+- Verdict: reverted. WORSE on one broken term (female centroid tʃ +1.0) and the score (+0.011):
+  the male gains 0.041, the female loses 0.064, all of it in her sibilant group (five terms, so
+  each centroid weighs six times a level or duration term).
+- Commit: none (log only).
+- Next: the patch is right for the male on every affricate term. It is blocked by the female
+  /ʃ/'s spectrum, not its own logic: fix her /ʃ/ centroid (3.3 kHz against 4.0) first, then retry
+  this unchanged. Also found while probing (not judged): the male /s/ peaks at 3.2–3.5 kHz in
+  /əˈsi/ and /əˈsɑ/ whatever the teeth source's low-pass (5, 10 or 20 kHz) or the jaw (0.3, 0.15,
+  0.05 cm); only the high bands rise with the low-pass, and the /ʃ/ centroid rises faster than the
+  /s/'s (male /ʃ/ 3.9 → 5.4 kHz at 20 kHz), so a wider teeth source alone would break the male
+  centroid ʃ. The /s/ front cavity holds a 3.5 cm² chamber 1 cm in front of the constriction
+  (the region the `ahead` law covers), which a laminal /s/ with the tip down wouldn't have.
