@@ -25,6 +25,8 @@ export class Transport {
   private generation = 0;
   private wasRunning = false;
   epoch = 0;
+  /** frame capture (tools/duet-video.ts): a pinned playhead that reads as playing, with no audio */
+  captureTime: number | null = null;
   private readonly listeners = new Set<() => void>();
 
   constructor(ctx: AudioContext = new AudioContext({ latencyHint: "playback" })) {
@@ -46,7 +48,7 @@ export class Transport {
   }
 
   get isPlaying(): boolean {
-    return this.playing;
+    return this.playing || this.captureTime !== null;
   }
 
   get state(): TransportState {
@@ -98,6 +100,7 @@ export class Transport {
 
   /** the audible playhead (s) */
   time(): number {
+    if (this.captureTime !== null) return this.captureTime;
     if (!this.playing) return this.offset;
     const t = Math.min(this.duration, this.offset + Math.max(0, this.audibleNow() - this.startedAt));
     if (this.rendered && t >= this.duration) {

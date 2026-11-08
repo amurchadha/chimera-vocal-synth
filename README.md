@@ -40,6 +40,7 @@ cargo run --release -p chimera-cli -- diagnose       # nasal leakage, formants, 
 cargo run --release -p chimera-cli -- compare csd    # against a real singer (docs/csd-comparison.md)
 cargo run --release -p chimera-cli -- compare tsp    # against 23 real speakers (docs/speech-comparison.md)
 bun tools/spectrogram.ts in.wav out.png
+bun tools/duet-video.ts <show-id> out.mp4         # a duet show as video, frame-exact (needs bun run preview)
 ```
 
 ## Docs
