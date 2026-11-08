@@ -1381,3 +1381,25 @@ MCD 8.614 dB. `out/hill/best` holds this run, and the listening page was rebuilt
 - **Declined:** a stop shorter than 10 ms still holds its closure past its end (the minimum hold
   in `oral_gestures_into`). It predates this batch, and no planner produces one (the sung floor is
   12 ms).
+
+## Batch 3: clarity (from 2026-11-08, fork amurchadha/chimera-vocal-synth)
+
+The same rules as batch 2 (speech decides, the singer guards). The goal is the male voice's
+clarity: it raps in a performance, and even at talking speed Whisper misses about 40 % of its
+words.
+
+### The judge for batch 3
+
+- `speech_wer.py` averages each sentence over five start offsets (0, 0.07, 0.15, 0.23, 0.31 s;
+  commit 8f37d38). One render's training rate moved 36.75 to 40.73 % with the offset alone (ten
+  offsets measured); the five-offset mean roughly halves that. Single-offset numbers from
+  batch 2 aren't comparable with batch 3's.
+
+### Batch 3 baseline (commit 1717b57's sound = batch 2's best; `out/hill/baseline`)
+
+- Speech, training: **39.74 %** (harvard female 47.0, male 28.5; nonsense female 39.72, male
+  44.23). Held-out: **43.93 %**. Training rate at each offset alone: 38.74 to 40.73.
+- Singer: training 0.587, held-out 0.811 (as batch 2's best after its review).
+- Speed: 14.7 % of one core (`os=2`, this machine).
+- The rap work on this branch (`render rap --speedup/--lively/--reduce`) is opt-in and changes
+  no speech or singing render (goldens unchanged).
