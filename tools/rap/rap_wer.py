@@ -75,7 +75,7 @@ def main():
     out = args[0]
     os.makedirs(out, exist_ok=True)
     verses = [(l.rstrip("\n").split("\t") + ["train"])[:2] for l in open(os.path.join(HERE, "verses.tsv")) if l.strip()]
-    chimera = os.path.join(REPO, "target/release/chimera")
+    chimera = os.environ.get("CHIMERA_BIN") or os.path.join(REPO, "target/release/chimera")
     jobs = [(rate, i, text, part, os.path.join(out, f"{rate}-{i + 1:02d}")) for rate in RATES for i, (text, part) in enumerate(verses)]
 
     def render(job):

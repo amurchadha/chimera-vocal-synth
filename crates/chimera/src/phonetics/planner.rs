@@ -262,10 +262,12 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
         // vowel-to-vowel through the consonant (Öhman): the previous vowel lets go early in the gap
         // and the next one's target ramps in over most of it, so the tongue body is already near
         // the next vowel at the release and the transitions carry the consonant's place
-        let r_in = js_max(0.03, 0.75 * (times[i].t0 - prev)) + 0.01;
-        let r_out = js_max(0.03, 0.4 * (next - times[i].t1)) + 0.01;
-        let g = Gesture::new(times[i].t0, times[i].t1, r_in, r_out, 1.0, artic_targets(segs[i].vowel.as_ref().unwrap())).label(segs[i].ipa);
+        // Fast talking shrinks the 30 ms ramp floors with the vowel. Without that, at 10 syllables
+        // a second the ramps outlast the vowel and its neighbours' targets win through its middle.
         let b = boost(i);
+        let r_in = js_max(0.03 / b, 0.75 * (times[i].t0 - prev)) + 0.01 / b;
+        let r_out = js_max(0.03 / b, 0.4 * (next - times[i].t1)) + 0.01 / b;
+        let g = Gesture::new(times[i].t0, times[i].t1, r_in, r_out, 1.0, artic_targets(segs[i].vowel.as_ref().unwrap())).label(segs[i].ipa);
         gestures.push(if b > 1.0 { g.speed(b) } else { g });
     }
     // utterance-initial/final consonants: lend them the nearest vowel's body posture
@@ -284,7 +286,7 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
         let next_vowel = i < segs.len() - 1 && segs[i + 1].vowel.is_some();
         let prev_seg = if i > 0 { Some(&segs[i - 1]) } else { None };
         let fast = boost(i);
-        let mut add_oral = |tg: &ArticPatch, a: f64, b: f64, speed: f64, label: &str| oral_gestures_into(def, tg, a, b, speed * fast, label, &mut gestures);
+        let mut add_oral = |tg: &ArticPatch, a: f64, b: f64, speed: f64, label: &str| oral_gestures_into(def, tg, a, b, speed * fast, fast, label, &mut gestures);
         match def.manner {
             // a stop that closes behind another stop's closure, its articulator already placed by
             // the segment before that (the tip raised for /ɹ/ in "sharp tree"), reaches contact
@@ -333,8 +335,11 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
             if def.manner == Manner::Stop || def.manner == Manner::Affricate {
                 // aspirated when syllable-initial before a vowel and not after /s/ (English-like)
                 let aspirated = next_vowel && !prev_seg.is_some_and(|p| p.ipa == "s");
-                let vot = if aspirated { 0.05 / rate } else { 0.012 };
-                gestures.push(Gesture::new(t0 + 0.25 * dur, t1 + vot * 0.4, 0.035, if aspirated { 0.045 } else { 0.02 }, 6.0, one(ControlKey::ABDUCTION, if aspirated { 0.36 } else { 0.22 })).label("aspiration"));
+                // fast talking shortens the aspiration with the squeeze of the stop and its vowel:
+                // a fixed 50 ms VOT and 45 ms release would leave a 40 ms rap vowel all breath
+                let squeeze = js_max(fast, if i + 1 < segs.len() { boost(i + 1) } else { 1.0 });
+                let vot = if aspirated { 0.05 / rate / squeeze } else { 0.012 };
+                gestures.push(Gesture::new(t0 + 0.25 * dur, t1 + vot * 0.4, 0.035, if aspirated { 0.045 / squeeze } else { 0.02 }, 6.0, one(ControlKey::ABDUCTION, if aspirated { 0.36 } else { 0.22 })).label("aspiration"));
             } else {
                 gestures.push(Gesture::new(t0 - 0.015, t1 + 0.005, 0.03, 0.03, 6.0, one(ControlKey::ABDUCTION, 0.3)).label("voiceless"));
             }
@@ -479,13 +484,17 @@ fn pitch_ramp(dur: f64) -> f64 {
 /// Movement latencies are compensated so the acoustic closure and release land on a and b.
 pub fn oral_gestures(def: &PhonemeDef, tg: &ArticPatch, a: f64, b: f64, speed: f64, label: &str) -> Vec<Gesture> {
     let mut out = Vec::with_capacity(4);
-    oral_gestures_into(def, tg, a, b, speed, label, &mut out);
+    oral_gestures_into(def, tg, a, b, speed, 1.0, label, &mut out);
     out
 }
 
 /// [`oral_gestures`], appended to `out` (at most four gestures; no allocation when `out` has
-/// room for them).
-pub fn oral_gestures_into(def: &PhonemeDef, tg: &ArticPatch, a: f64, b: f64, speed: f64, label: &str, out: &mut Vec<Gesture>) {
+/// room for them). `squeeze` (1 = as usual) is how much faster than natural the consonant is
+/// said: it divides the gestures' ramps and release hold, and the latency compensation shrinks
+/// with the articulators' extra speed. With fixed 50 ms ramps a 24 ms consonant's targets
+/// covered its neighbouring vowels, and at ten syllables a second the mouth opened a third as far
+/// on vowels (smallest oral section 0.43 cm² against 1.42), whatever the articulators' speed.
+pub fn oral_gestures_into(def: &PhonemeDef, tg: &ArticPatch, a: f64, b: f64, speed: f64, squeeze: f64, label: &str, out: &mut Vec<Gesture>) {
     let mut dom = ArticPatch::default();
     let mut sec = ArticPatch::default();
     for (k, v) in tg.iter() {
@@ -499,22 +508,26 @@ pub fn oral_gestures_into(def: &PhonemeDef, tg: &ArticPatch, a: f64, b: f64, spe
     // the dorsum is heavy: its releases are slower than tip and lip releases
     let body_only = def.dominant.iter().all(|k| is(k, ArticKey::TbX, ArticKey::TbY, ArticKey::Root));
     let sp = if body_only { 1.0 + (speed - 1.0) * 0.35 } else { speed };
+    let q = js_max(1.0, squeeze);
+    // movement latencies shrink as the dominant articulators speed up beyond their usual speed
+    let base = speed / q;
+    let lat = (if body_only { 1.0 + (base - 1.0) * 0.35 } else { base }) / sp;
     // articulators need ~10–15 ms to climb out of the overshoot (contact) target, so the
     // gesture releases early and the acoustic release lands on the planned boundary:
     // measured movement latencies (closure lag / release lag) per articulator class
     let closing = matches!(def.manner, Manner::Stop | Manner::Nasal | Manner::Affricate);
     let lips_only = def.dominant.iter().all(|k| *k == ArticKey::LipAp || *k == ArticKey::Labiodental);
-    let lead = if closing { if body_only { 0.034 } else if lips_only { 0.019 } else { 0.02 } } else { 0.0 };
+    let lead = lat * if closing { if body_only { 0.034 } else if lips_only { 0.019 } else { 0.02 } } else { 0.0 };
     // a consonant must own its constriction articulators (Task-Dynamics style): at strength 40
     // the overlapping vowel contributes ~2 %, so closures seal instead of being diluted
-    let early = if closing { if body_only { 0.024 } else if lips_only { 0.022 } else { 0.031 } } else { 0.008 };
+    let early = lat * if closing { if body_only { 0.024 } else if lips_only { 0.022 } else { 0.031 } } else { 0.008 };
     if !dom.is_empty() {
-        out.push(Gesture::new(a - early, js_max(a + 0.01, b - lead), 0.03, if body_only { 0.03 } else { 0.018 }, 40.0, artic_targets(&dom)).speed(sp).release_hold(0.045).label(label));
+        out.push(Gesture::new(a - early, js_max(a + 0.01, b - lead), 0.03 / q, if body_only { 0.03 } else { 0.018 }, 40.0, artic_targets(&dom)).speed(sp).release_hold(0.045).label(label));
     }
     // alveolars front the tongue body during the closure (the alveolar F2 locus, ~1.8 kHz)
     let alveolar = def.place == "alveolar" && tg.get(ArticKey::TbX).is_none() && matches!(def.manner, Manner::Stop | Manner::Nasal | Manner::Fricative | Manner::Affricate | Manner::Tap);
     if alveolar {
-        out.push(Gesture::new(a, b, 0.05, 0.05, 1.2, Targets::default().with(ArticKey::TbX, 3.2).with(ArticKey::TbY, 7.4)).label(label));
+        out.push(Gesture::new(a, b, 0.05 / q, 0.05 / q, 1.2, Targets::default().with(ArticKey::TbX, 3.2).with(ArticKey::TbY, 7.4)).label(label));
     }
     if !sec.is_empty() {
         // a velar's front–back place follows the vowel (fronted /k/ in "key", backed in "caw"):
@@ -524,10 +537,10 @@ pub fn oral_gestures_into(def: &PhonemeDef, tg: &ArticPatch, a: f64, b: f64, spe
             sec.values[ArticKey::TbX.index()] = None;
         }
         if !sec.is_empty() {
-            out.push(Gesture::new(a, b, 0.05, 0.05, 2.2, artic_targets(&sec)).label(label));
+            out.push(Gesture::new(a, b, 0.05 / q, 0.05 / q, 2.2, artic_targets(&sec)).label(label));
         }
         if let Some(x) = place {
-            out.push(Gesture::new(a, b, 0.05, 0.05, 0.25, one(ArticKey::TbX, x)).label(label));
+            out.push(Gesture::new(a, b, 0.05 / q, 0.05 / q, 0.25, one(ArticKey::TbX, x)).label(label));
         }
     }
 }

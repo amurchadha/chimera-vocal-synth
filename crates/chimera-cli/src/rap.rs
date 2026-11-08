@@ -2,7 +2,7 @@
 //! engine) and `chimera rap score` (a test score on a beat grid).
 
 use crate::js::fixed;
-use crate::render::{g2p, render_tracked};
+use crate::render::{g2p, render_blocks, render_tracked};
 use crate::{Ctx, FS, arg, body, wav_name};
 use chimera::math::js_round;
 use chimera::phonetics::Intonation;
@@ -13,7 +13,7 @@ use chimera::phonetics::planner::{PlanOptions, is_vowel, plan_utterance, seg_inf
 use chimera::phonetics::rap::{RapTiming, RapWord, fit_rap_group};
 use chimera::phonetics::sing::{SongOptions, SungNote, plan_song};
 use chimera::phonetics::syllables::lyrics_to_syllables;
-use chimera::voice::human_voice::{HumanVoice, SourcePatch};
+use chimera::voice::human_voice::{HumanVoice, SourcePatch, VoiceTelemetry};
 use serde_json::{Value, json};
 
 fn word_segments(g: &EnglishG2P, text: &str) -> Vec<Segment> {
@@ -46,6 +46,7 @@ pub fn render(ctx: &Ctx, a: &[String]) -> Result<(), String> {
     let speedup: Option<f64> = take_opt(&mut a, "--speedup").map(|s| s.parse().map_err(|_| "--speedup must be a number")).transpose()?;
     let base_hz: Option<f64> = take_opt(&mut a, "--base-hz").map(|s| s.parse().map_err(|_| "--base-hz must be a number")).transpose()?;
     let tele_out = take_opt(&mut a, "--tele");
+    let probe_out = take_opt(&mut a, "--probe");
     let dump = a.iter().any(|x| x == "--dump");
     a.retain(|x| x != "--dump");
     let name = arg(&a, 0, "out/rap");
@@ -135,7 +136,32 @@ pub fn render(ctx: &Ctx, a: &[String]) -> Result<(), String> {
     }
     let end = plans.iter().map(|p| p.end).fold(last_end, f64::max) + 0.35;
     let mut out = vec![0f32; js_round(FS * end) as usize];
-    let (_, rec) = render_tracked(&mut voice, &mut out, false, tele_out.is_some())?;
+    if let Some(path) = &probe_out {
+        // per planned segment, the narrowest and widest the mouth got (smallest oral-cavity
+        // section, cm², sampled each ms) while the segment was planned
+        let mut t = VoiceTelemetry::default();
+        let mut series: Vec<f64> = Vec::new();
+        let mut lips: Vec<String> = Vec::new();
+        for chunk in out.chunks_mut(48) {
+            render_blocks(&mut voice, chunk);
+            voice.telemetry(&mut t);
+            series.push(t.or_areas.iter().fold(f64::INFINITY, |m, &x| m.min(x as f64)));
+            lips.push(format!("{:.3}\t{:.3}", voice.artic.x.lip_ap, voice.artic.effective.lip_ap));
+        }
+        let mut tsv = String::from("ipa\tt0\tt1\tmin\tmax\n");
+        for s in plans.iter().flat_map(|p| &p.segments) {
+            let (ipa, t0, t1) = (&s.ipa, s.t0, s.t1);
+            let (i0, i1) = ((t0 * 1000.0) as usize, ((t1 * 1000.0).ceil() as usize).min(series.len()));
+            let w = &series[i0.min(i1)..i1];
+            let (lo, hi) = w.iter().fold((f64::INFINITY, 0f64), |(lo, hi), &x| (lo.min(x), hi.max(x)));
+            tsv += &format!("{ipa}\t{t0:.3}\t{t1:.3}\t{lo:.4}\t{hi:.4}\n");
+        }
+        std::fs::write(path, tsv).map_err(|e| format!("{path}: {e}"))?;
+        let s: Vec<String> = series.iter().zip(&lips).map(|(x, l)| format!("{x:.4}\t{l}")).collect();
+        std::fs::write(format!("{path}.ms"), s.join("\n")).map_err(|e| format!("{path}.ms: {e}"))?;
+        println!("wrote {path}");
+    }
+    let (_, rec) = if probe_out.is_some() { (Vec::new(), None) } else { render_tracked(&mut voice, &mut out, false, tele_out.is_some())? };
     let file = wav_name(name);
     ctx.write_wav(&file, &out)?;
     if let (Some(path), Some(rec)) = (&tele_out, rec) {
