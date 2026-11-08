@@ -11,7 +11,8 @@ use chimera::phonetics::{Plan, Segment};
 use chimera::phonetics::english::EnglishG2P;
 use chimera::phonetics::durations::klatt_durations;
 use chimera::phonetics::planner::{PlanOptions, is_vowel, plan_utterance, seg_info};
-use chimera::phonetics::rap::{RapTiming, RapWord, fit_rap_group};
+use chimera::phonetics::ipa::tokenize_ipa;
+use chimera::phonetics::rap::{REDUCE_LOAD, RapTiming, RapWord, fit_rap_group, reduce_fast};
 use chimera::phonetics::sing::{SongOptions, SungNote, plan_song};
 use chimera::phonetics::syllables::lyrics_to_syllables;
 use chimera::voice::human_voice::{HumanVoice, SourcePatch, VoiceTelemetry};
@@ -34,7 +35,9 @@ fn take_opt(a: &mut Vec<String>, name: &str) -> Option<String> {
 }
 
 /// `render rap <out> <score.json> [male|female|child] [--timing even|klatt] [--speedup x]
-/// [--base-hz hz] [--tele voice.tele] [--lively] [--dump]`. `--lively`: stressed syllables
+/// [--base-hz hz] [--tele voice.tele] [--lively] [--reduce] [--dump]`. `--reduce`: words too
+/// fast for their slot are said the way fast talkers say them (weak forms, then
+/// `phonetics::rap::reduce_fast`). A word's "pronunciation" can also be "/ipa/". `--lively`: stressed syllables
 /// louder and pitch-accented, a fall across each breath group, pitch kicks after obstruents. `--tele` also records the voice's telemetry, which
 /// tools/performance/render-new.mjs draws the vocal tract from.
 pub fn render(ctx: &Ctx, a: &[String]) -> Result<(), String> {
@@ -49,6 +52,9 @@ pub fn render(ctx: &Ctx, a: &[String]) -> Result<(), String> {
     let base_hz: Option<f64> = take_opt(&mut a, "--base-hz").map(|s| s.parse().map_err(|_| "--base-hz must be a number")).transpose()?;
     let tele_out = take_opt(&mut a, "--tele");
     let probe_out = take_opt(&mut a, "--probe");
+    let reduce = a.iter().any(|x| x == "--reduce");
+    a.retain(|x| x != "--reduce");
+    let mut reduced = 0usize;
     let lively = a.iter().any(|x| x == "--lively");
     a.retain(|x| x != "--lively");
     let dump = a.iter().any(|x| x == "--dump");
@@ -93,11 +99,26 @@ pub fn render(ctx: &Ctx, a: &[String]) -> Result<(), String> {
                 let mut rap: Vec<RapWord> = Vec::new();
                 for w in batch.iter() {
                     let text = w.get("pronunciation").or(w.get("text")).and_then(Value::as_str).unwrap_or("");
-                    let segments = word_segments(&g, text);
+                    // "/ipa/" spells the sounds themselves
+                    let mut segments = match text.strip_prefix('/').and_then(|s| s.strip_suffix('/')) {
+                        Some(ipa) => tokenize_ipa(ipa),
+                        None => word_segments(&g, text),
+                    };
                     if segments.is_empty() {
                         return Err(format!("no pronunciation for {text:?}"));
                     }
-                    rap.push(RapWord { segments, start: num(w, "start", text)?, end: num(w, "end", text)?, f0: num(w, "hz", text)? });
+                    let (start, end) = (num(w, "start", text)?, num(w, "end", text)?);
+                    if reduce
+                        && segments.len() as f64 / (end - start).max(1e-3) > REDUCE_LOAD
+                        && let Some(weak) = weak_form(text)
+                    {
+                        segments = tokenize_ipa(weak);
+                        reduced += 1;
+                    }
+                    rap.push(RapWord { segments, start, end, f0: num(w, "hz", text)? });
+                }
+                if reduce {
+                    reduced += reduce_fast(&mut rap, body_name.into());
                 }
                 let mut group = fit_rap_group(&rap, body_name.into(), timing);
                 if lively {
@@ -176,10 +197,29 @@ pub fn render(ctx: &Ctx, a: &[String]) -> Result<(), String> {
         println!("wrote {path}");
     }
     println!("wrote {file}  {} s", fixed(end, 2));
+    if reduce {
+        println!("fast-talk reductions: {reduced}");
+    }
     if !overfull.is_empty() {
         println!("too fast to say in full (respell with \"pronunciation\"): {}", overfull.join(", "));
     }
     Ok(())
+}
+
+/// `--reduce`: the weak forms fast talkers use for these words (the dictionary's are the
+/// careful ones; the speech planner already reduces their vowels, not their consonants).
+fn weak_form(text: &str) -> Option<&'static str> {
+    let w: String = text.to_lowercase().replace('’', "'").chars().filter(|c| c.is_ascii_lowercase() || *c == '\'').collect();
+    Some(match w.trim_matches('\'') {
+        "and" | "n" => "ən",
+        "them" | "em" => "əm",
+        "you" | "ya" => "jə",
+        "your" | "you're" => "jɚ",
+        "to" => "tə",
+        "for" => "fɚ",
+        "because" | "cause" => "kəz",
+        _ => return None,
+    })
 }
 
 /// `--lively` pitch over a breath group's words (each vowel holds its word's pitch): stressed

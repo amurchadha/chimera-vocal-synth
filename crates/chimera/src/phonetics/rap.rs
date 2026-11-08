@@ -13,7 +13,7 @@
 
 use super::Segment;
 use super::durations::{SegInfo, klatt_durations, klatt_min};
-use super::planner::seg_info;
+use super::planner::{is_vowel, seg_info};
 use crate::anatomy::human::BodyMix;
 
 /// One word of a rap line: its segments (word ends marked), its time span and its pitch.
@@ -142,6 +142,74 @@ fn fit(inh: &[f64], min: &[f64], info: &[SegInfo], slot: Option<f64>, cap: f64) 
     (min.iter().map(|m| m * target / sm).collect(), true)
 }
 
+/// Segments a second above which a word is said the way fast talkers say it (careful speech is
+/// ~12–14; a rap double-time line 25–30).
+pub const REDUCE_LOAD: f64 = 15.0;
+
+/// A word's segments a second over its slot.
+pub fn load(w: &RapWord) -> f64 {
+    w.segments.len() as f64 / (w.end - w.start).max(1e-3)
+}
+
+/// Connected-speech reductions that fast talkers (and rappers) make, applied to words with more
+/// than [`REDUCE_LOAD`] segments a second; the rest are left whole. Each removed sound gives the
+/// others time: the voice otherwise said every dictionary sound of every word, squeezed.
+/// - -ing as -in' (final /ɪŋ/ of a word of two or more syllables → /ɪn/)
+/// - /h/ dropped from an unstressed word inside a line ("him", "his", "her", "have")
+/// - a final /t d/ after a consonant dropped before a consonant ("and", "just", "find")
+/// - a final consonant the next word starts with said once ("what to", "slap box" keeps both)
+/// - one weak vowel squeezed out before /ɹ l n/ and a vowel in a word of three or more
+///   syllables ("every" → "evry", "different" → "diffrent")
+///
+/// Returns how many sounds were changed or removed.
+pub fn reduce_fast(words: &mut [RapWord], body: BodyMix) -> usize {
+    let vowel = |s: &Segment| is_vowel(&s.ipa, body);
+    let mut changed = 0;
+    for i in 0..words.len() {
+        if load(&words[i]) <= REDUCE_LOAD || words[i].segments.len() < 2 {
+            continue;
+        }
+        let next_first = words.get(i + 1).and_then(|w| w.segments.first()).cloned();
+        let next_consonant = next_first.as_ref().is_some_and(|s| !vowel(s));
+        let segs = &mut words[i].segments;
+        let n_vowels = segs.iter().filter(|s| vowel(s)).count();
+        let n = segs.len();
+        if n_vowels >= 2 && segs[n - 2].ipa == "ɪ" && segs[n - 1].ipa == "ŋ" {
+            segs[n - 1].ipa = "n".into();
+            changed += 1;
+        }
+        if i > 0 && segs[0].ipa == "h" && segs.iter().filter(|s| vowel(s)).all(|s| s.stress.unwrap_or(0) == 0) {
+            segs.remove(0);
+            changed += 1;
+        }
+        let n = segs.len();
+        if n >= 3 && next_consonant && matches!(segs[n - 1].ipa.as_str(), "t" | "d") && !vowel(&segs[n - 2]) {
+            segs.pop();
+            changed += 1;
+        } else if let Some(f) = next_first.as_ref()
+            && n >= 2
+            && !vowel(f)
+            && segs[n - 1].ipa == f.ipa
+        {
+            segs.pop();
+            changed += 1;
+        }
+        if n_vowels >= 3 {
+            let n = segs.len();
+            if let Some(k) = (1..n.saturating_sub(2)).find(|&k| {
+                matches!(segs[k].ipa.as_str(), "ə" | "ɪ") && segs[k].stress.unwrap_or(0) == 0 && !vowel(&segs[k - 1]) && matches!(segs[k + 1].ipa.as_str(), "ɹ" | "l" | "ɫ" | "n") && vowel(&segs[k + 2])
+            }) {
+                segs.remove(k);
+                changed += 1;
+            }
+        }
+        if let Some(last) = segs.last_mut() {
+            last.word_end = Some(true);
+        }
+    }
+    changed
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -149,6 +217,26 @@ mod tests {
 
     fn word(ipa: &str, start: f64, end: f64) -> RapWord {
         RapWord { segments: tokenize_ipa(ipa), start, end, f0: 110.0 }
+    }
+
+    fn ipa_of(w: &RapWord) -> String {
+        w.segments.iter().map(|s| s.ipa.as_str()).collect()
+    }
+
+    #[test]
+    fn fast_words_are_reduced_and_slow_ones_kept() {
+        crate::phonetics::planner::init();
+        let b = BodyMix::default();
+        // "rippin' every verse and him": fast slots (0.1-0.2 s per word)
+        let mut fast = vec![word("ˈɹɪpɪŋ", 0.0, 0.2), word("ˈɛvəɹi", 0.2, 0.4), word("ˈvɝs", 0.4, 0.5), word("ænd", 0.5, 0.6), word("hɪm", 0.6, 0.7), word("ˈmi", 0.7, 0.9)];
+        let changed = reduce_fast(&mut fast, b);
+        let got: Vec<String> = fast.iter().map(ipa_of).collect();
+        assert_eq!(got, ["ɹɪpɪn", "ɛvɹi", "vɝs", "æn", "ɪ", "mi"], "{changed} changes");
+        // a reduced word still ends on a word end (the planner releases words there)
+        assert!(fast[..5].iter().all(|w| w.segments.last().unwrap().word_end == Some(true)));
+        // the same words at a talking pace are left whole
+        let mut slow = vec![word("ˈɹɪpɪŋ", 0.0, 0.6), word("ˈɛvəɹi", 0.6, 1.2), word("ænd", 1.2, 1.6), word("hɪm", 1.6, 2.0)];
+        assert_eq!(reduce_fast(&mut slow, b), 0);
     }
 
     #[test]
