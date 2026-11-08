@@ -190,6 +190,11 @@ opens a new one, update this list and give the experiment's number.
    Whisper's total doesn't move (36.09 → 37.09 %). The click is closed by experiment 19, which
    kept experiment 18's patch under the artifact keep rule (`an_f_does_not_click` passes, +0.3
    to +4.6 dB). The first-word errors stay open; see experiment 18's "Next".
+10. **Rap contrast at speed (experiments 29–32).** The consonants of a rap at 9 syllables a
+    second measure as loud against the vowels as the vowels themselves, but their own level is
+    the same fast and slow: the loss is the vowels'. They lose voicing to fixed-length glottal
+    gestures (29, 30) and their ends to the consonants' strength-40 ramps (32). None was kept;
+    see "Rap contrast (2026-11-08)" at the end.
 
 ## Experiments
 
@@ -1873,3 +1878,139 @@ of the build without it: 1.584 training, 1.706 held-out (male 1.0, female 2.2).
     and 1500 for /ʒ/, and the female's barely above the male's: /s/ would brighten more, but /z/
     and the voiced affricates would get darker than now, against the data (men's /z/ is only 11 %
     below their /s/), and the female /tʃ/ would lose what 26 gave it.
+
+## Rap contrast (2026-11-08)
+
+Branch `rap/contrast`, on batch 3 at experiment 28 (e419226). The goal is a male voice that raps
+a fast verse understandably. The judge renders a fast section (dt, 83 words) and the next verse
+(fv, 202 words) on the real artist's timing (`render rap … male --timing klatt --speedup 2
+--probe`) and prints, per group, the median level of the middle half of each planned segment
+against the median vowel's, pooled over both sections, and Whisper's word error rate on each.
+Keep: at least 1.5 dB toward the artist's levels on two of the three groups, none worse by more
+than 0.5 dB, and the rate over dt+fv not up by more than 3 points (or down 5+ points with no
+contrast gain). The recognizer is noisy, about ±5 points on dt. The song is private: no lyrics,
+audio or derived files in git; only numbers here.
+
+- The artist: approximants (l w r) −5 dB, voiced fricatives (v ð z) −14, nasals (m n ŋ) −5.
+  Baseline (e28): −0.6, −3.4, −1.8. The same lines three times slower: −4.6, −9.5, −7.1.
+- Rate over dt+fv at the baseline: 88.9 % (dt 115.3, fv 78.1).
+
+### Before the experiments: the contrast lost at speed is the vowels'
+
+- Absolute levels (dB, middle half of each segment), fv at the artist's timing against three
+  times slower: l w r 70.0 against 71.4, v ð z 66.2 against 66.4, m n 68.9 against 69.0, vowels
+  71.2 against 76.0. The consonants are as loud fast as slow, and their narrowest sections are
+  the same (l w r 0.283 against 0.285 cm², v ð z 0.156 against 0.157). The vowels lose 4.8 dB.
+  In dt (median vowel 33 ms) the consonants are louder than the vowels (vowels 65.8 dB; l w r
+  70.7, v ð z 68.1, m n 69.0).
+- Vowels by neighbour, against the median vowel: between voiced sounds +3.8 dB in dt (105),
+  after a voiceless consonant −7.7 (29), before one −5.0 (26); in fv +1.4, −5.2, −2.5; three
+  times slower −0.1, −0.1, +0.3. Voicing is lost next to voiceless sounds.
+- With the voicing and the abduction added to the probe (a scratch build, with 29 applied): 54
+  of dt's 165 vowels are unvoiced through their measured window and 25 partly. 36 lie under the
+  previous breath group's exhale (mean voicing 0.18), 27 under a stop's aspiration (0.39). The
+  median of the voiced vowels alone is 6 dB above all vowels' in dt, 2 dB in fv.
+- Between voiced sounds the vowels open less: fv's narrowest section at mid-vowel 0.71 cm²
+  against 1.08 slow. The jaw reaches its target; the tongue body misses by 0.26 cm (median; 80th
+  percentile 0.67) against 0.03 slow. About half of that is the blended target itself: at
+  mid-vowel the consonants' strength-40 gestures weigh 3.7 on average on the tongue body against
+  the vowel's 1 (0.4 slow), mostly a following velar or /w/, and 2.2 on the lips from a
+  following /m/ alone. Stops and nasals seal 5–15 ms before their planned onset (smallest
+  section ≤ 0.02 cm² at −0.1 to −0.2 of their length), fast and slow alike.
+- The pooled medians count fv's tokens three times as often as dt's, so fv decides them.
+
+### 29. Voiceless consonants' glottal opening shrinks with rate (reverted)
+
+- Hypothesis: the glottal opening of a voiceless fricative (`plan_utterance`: from 15 ms
+  before it, 30 ms ramps, strength 6, its abduction full once it is a third active) parts the
+  folds from about 33 ms before the fricative to 23 ms after it, at any rate. A stop's
+  aspiration ramps in over 35 ms. At rap speed that is half of a 50 ms vowel either side. Talkers
+  shorten the glottal gesture with rate (Munhall & Löfqvist 1992).
+- Change: `crates/chimera/src/phonetics/planner.rs`: the "voiceless", "h" and stop aspiration
+  gestures' lead, pads and ramps divide by the larger boost of the consonant, the segment
+  after it and the one before (`gq`); the aspirated release ramp keeps its squeeze. Acts only
+  when a boost is above 1.
+- Judge: levels m n −1.8 → −1.9, v ð z −3.4 → −3.3, l w r −0.6 → −0.8. Rate dt 115.3 → 106.4 %,
+  fv 78.1 → 75.7 %, dt+fv 88.9 → 84.6 % (−4.3).
+  - fv vowels before a voiceless consonant −2.5 → −0.7 dB, after one −5.2 → −3.7; dt hardly
+    moves (after −7.7 → −8.5): most of dt's consonants are at their Klatt minimum, and dt's
+    unvoiced vowels lie under the exhale (experiment 30).
+- Guards: goldens unchanged (checked with 30 and 32 together against fixtures blessed at e28:
+  116 pass), so speech and singing are untouched; TSP and the singer not run.
+- Verdict: reverted. No contrast gain, and a 4.3-point drop is under the 5 the rule asks for
+  (within the recognizer's noise on dt).
+- Commit: none. Diff at /Volumes/hd/tmp/rap-contrast-11-08/e29-glottal-squeeze.diff.
+
+### 30. A rap's breath groups end at breaths, not at every line and gap (reverted)
+
+- Hypothesis: `render rap` planned every line, and every gap inside one, as its own breath
+  group: 21 in dt and 41 in fv, though 8 of dt's 13 line boundaries and 16 of fv's 29 have no
+  gap at all and the gaps inside lines are 20–280 ms. Each group ends with the folds apart (the
+  exhale gesture, 0.22 cm² from 15 ms after its last sound to about 160 ms), so the next
+  group's first word starts devoiced. Nobody breathes in a gap shorter than about 0.2 s.
+- Change: `crates/chimera-cli/src/rap.rs`: words less than `BREATH_PAUSE` = 0.2 s apart, across
+  lines too, are one breath group, and a word before a short gap runs on to the next one's start
+  (for `--timing even`; Klatt's slots already did). Sung lines are planned as before. dt 21 → 2
+  groups, fv 41 → 9. Rap only; goldens unchanged.
+- Judge: levels m n −1.9, v ð z −3.3, l w r −0.7. Rate dt 110.0 %, fv 75.9 %, dt+fv 85.8 %
+  (−3.1).
+  - dt's median vowel +4.7 dB (65.8 → 70.5), and dt's consonants fell 2.4–3.3 dB against it;
+    fv's vowels +0.5 dB, so the pooled levels hardly move.
+- Verdict: reverted (no pooled contrast gain, a 3.1-point drop).
+- Commit: none. Diff at /Volumes/hd/tmp/rap-contrast-11-08/e30-breath-groups.diff.
+
+### 31. Experiments 29 and 30 together (reverted)
+
+- Hypothesis: the two take voicing from different vowels (the next group's first words, and
+  vowels next to voiceless consonants), so they should add.
+- Change: 29 and 30.
+- Judge: levels m n −2.4, v ð z −3.6, l w r −1.1 (+0.6, +0.2, +0.5). Rate dt 110.0 %, fv
+  75.1 %, dt+fv 85.3 % (−3.6).
+- Verdict: reverted: the contrast moves under 1.5 dB and the rate drop is under 5. The three
+  drops (4.3, 3.1, 3.6) all point the same way but none clears the recognizer's noise.
+- Commit: none.
+
+### 32. Experiment 31, and the consonants' strength-40 ramps sharpened when talking fast (reverted)
+
+- Hypothesis: at strength 40 a consonant's dominant gesture outweighs the vowel from 2.5 %
+  activation, so its cosine ramps act as steps at their far ends. The 30 ms ramp-in adds about
+  27 ms to the latency lead `early`, which is why stops and nasals seal 10–15 ms early, and the
+  18 ms ramp-out (no `lead` on a non-closing consonant) holds the constriction about 16 ms into
+  the next vowel. A 50 ms vowel loses both ends. With `--speedup` the ramps should shrink with
+  the articulators' speed even where the consonant itself is not below its Klatt minimum, which
+  is most of fv: the median fv consonant has boost 1 (64–76 % of each group is under 1.2).
+- Change: `oral_gestures_into` takes `snap`, the speedup when one is set (1 for speech, singing
+  and the beat sounds): the dominant gesture ramps in over 30 ms / max(squeeze, snap) and out
+  over its 18 or 30 ms / snap. `planner.rs`, `beatbox.rs` (the call). Goldens unchanged.
+  - Picked with a scratch build whose ramps scaled from the environment (levels only, not the
+    recognizer), on 31: the closing consonants' ramp-in ×0.5 alone moved the levels +1.1, +0.5,
+    +1.1 dB against the baseline and put the closures on their planned onset (≤ 0.02 cm² from 0
+    to +0.1 of the stop instead of −0.2); ×0.2 put them late. The ramp-out ×0.5 added the rest.
+- Judge: levels m n −3.6 (+1.8), v ð z −3.9 (+0.5), l w r −2.3 (+1.7): the contrast rule holds.
+  Rate dt 123.3 %, fv 85.8 %, dt+fv 96.7 % (+7.8 against the baseline, +11.4 against 31; fv alone
+  +10.7 against 31, past the noise).
+  - Closures sealed (smallest section < 0.005 cm²): alveolar 92 and 93 % (dt, fv; 31: 95, 93),
+    labial 67 and 89 % (72, 91), velar 95 and 96 % (unchanged).
+- Verdict: reverted: the recognizer is clearly worse. The contrast moved toward the artist's,
+  but the sharper switches shortened the transitions that carry the consonants' place, and the
+  later closures sealed fewer short stops.
+- Commit: none. Diff (29, 30 and 32) at /Volumes/hd/tmp/rap-contrast-11-08/e32-with-29-30.diff.
+- Next:
+  - The contrast measure and the recognizer disagree in 32. Louder vowel ends are not
+    understanding; a change for the contrast should keep the transitions (32's ramp-out is
+    the likely loss, as 947276b found for closures at sixteenths).
+  - The aspiration sits in our vowels' windows (Klatt counts VOT in the vowel; the artist's
+    alignment puts it in the stop). At fv's pace most stops keep their full 50 ms VOT (squeeze
+    1), so a 60 ms vowel after /p t k/ voices only its last 10–20 ms. VOT that shortens with the
+    syllable (Kessinger & Blumstein 1997) is the next candidate, and the measure would read it.
+  - The early sealing is not a rap matter: it is there three times slower too. Fixing it for all
+    speech (the closing ramp-in) moves the goldens and needs TSP and the singer; TSP's male
+    nasals are too long (n 1.07 against the people's 0.77, ŋ 1.32 against 1.04), which early
+    sealing would explain.
+  - 29 and 30 are physical faults with small, consistent gains; retry them with more words
+    (more sections) so the recognizer can decide, or together with a change that moves the
+    contrast.
+  - `boost` (below the Klatt minimum) misses fv: its 55 ms vowels and normal-length consonants
+    are "not fast" by that test, though their vowels lose 4.8 dB.
+  - The probe scripts (level by neighbour, voicing, blend weights by gesture, closure timing)
+    are in /Volumes/hd/tmp/rap-contrast-11-08/.
