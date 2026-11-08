@@ -1,6 +1,7 @@
 """Speech intelligibility of the engine, scored by Whisper: render each sentence with
 `chimera render text` in the male and female voices, transcribe it with faster-whisper
-(small.en, greedy, so the same audio gives the same words) and count word errors.
+(small.en, greedy, so the same audio gives the same words) at several start offsets (SHIFTS) and
+count word errors, averaged over the offsets.
 
 usage: speech_wer.py <outdir> [--against earlier/wer.json]
 
@@ -28,7 +29,12 @@ from faster_whisper import WhisperModel
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
-CACHE = os.path.expanduser("~/.cache/chimera-asr/models")
+CACHE = os.environ.get("CHIMERA_ASR_MODELS") or os.path.expanduser("~/.cache/chimera-asr/models")
+# Whisper hears the same audio differently when it starts a few hundredths of a second later
+# (its 20 ms frames fall elsewhere): one sentence went from 0 to 6 errors in 12 words with 0.4 s
+# more leading silence. So each render is trimmed to 0.1 s of leading silence and heard at these
+# offsets, and its errors are the mean.
+SHIFTS = tuple(float(s) for s in os.environ.get("CHIMERA_ASR_SHIFTS", "0,0.07,0.15,0.23,0.31").split(","))
 BODIES = ("male", "female")
 # word error rate (points) a change may add before it counts as a speech regression
 SLACK = 3.0
@@ -84,13 +90,24 @@ def main():
     model = WhisperModel("small.en", device="cpu", compute_type="int8", cpu_threads=os.cpu_count(),
                          download_root=CACHE)
     rows, totals = [], {}
+    per_shift = [dict() for _ in SHIFTS]
     for kind, text, body, stem, part in jobs:
-        segs, _ = model.transcribe(load16k(stem + ".wav"), language="en", beam_size=1, temperature=0.0,
-                                   condition_on_previous_text=False, vad_filter=False)
-        heard = " ".join(s.text.strip() for s in segs)
+        x = load16k(stem + ".wav")
+        x = x[max(0, int(np.argmax(np.abs(x) > 0.01)) - 1600):]
         ref = words(text)
-        e = edits(ref, words(heard))
-        rows.append({"kind": kind, "body": body, "set": part, "text": text, "heard": heard, "errors": e, "words": len(ref)})
+        heard, errs = [], []
+        for k, shift in enumerate(SHIFTS):
+            segs, _ = model.transcribe(np.concatenate([np.zeros(int(round(shift * 16000)), np.float32), x]), language="en",
+                                       beam_size=1, temperature=0.0, condition_on_previous_text=False, vad_filter=False)
+            heard.append(" ".join(s.text.strip() for s in segs))
+            errs.append(edits(ref, words(heard[-1])))
+            if part == "train":
+                t = per_shift[k].setdefault("all", [0, 0])
+                t[0] += errs[-1]
+                t[1] += len(ref)
+        e = sum(errs) / len(errs)
+        rows.append({"kind": kind, "body": body, "set": part, "text": text, "heard": heard[0], "heard_at_shifts": heard,
+                     "errors_at_shifts": errs, "errors": round(e, 2), "words": len(ref)})
         # "all" is the training sentences (as before held-out ones existed); "held" the others
         keys = (f"{kind}-{body}", "all") if part == "train" else (f"held-{kind}-{body}", "held")
         for key in keys:
@@ -98,14 +115,17 @@ def main():
             t[0] += e
             t[1] += len(ref)
     wer = {k: round(100.0 * e / n, 2) for k, (e, n) in totals.items()}
-    report = {"wer": wer, "sentences": rows}
+    single = [round(100.0 * s["all"][0] / s["all"][1], 2) for s in per_shift if "all" in s]
+    report = {"wer": wer, "shifts": list(SHIFTS), "training_wer_at_each_shift": single, "sentences": rows}
     with open(os.path.join(out, "wer.json"), "w") as f:
         json.dump(report, f, indent=1)
     # only the training sentences' transcripts: a tuning loop must not read the held-out ones
     for r in rows:
         if r["errors"] and r["set"] == "train":
             print(f"  {r['set']:5s} {r['kind']:8s} {r['body']:6s} {r['errors']}/{r['words']}  {r['text']}  →  {r['heard']}")
-    print("word error rate (%): " + ", ".join(f"{k} {v}" for k, v in sorted(wer.items())))
+    print("word error rate (%), mean over shifts: " + ", ".join(f"{k} {v}" for k, v in sorted(wer.items())))
+    if single:
+        print(f"training word error rate heard at each shift alone: {single} (spread {max(single) - min(single):.2f} points)")
     if against:
         before = json.load(open(against))["wer"]
         old, new = before["all"], wer["all"]
