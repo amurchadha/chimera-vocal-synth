@@ -1754,3 +1754,41 @@ of the build without it: 1.584 training, 1.706 held-out (male 1.0, female 2.2).
   Experiment 23 holds the /ʃ/ constriction through that half, and alone it lowered the male
   /tʃ/ centroid to 3369 Hz (cost 0) while its break was the female /tʃ/ centroid, which this
   change raises (3392 → 3596). The two are complementary: experiment 27 tries them together.
+
+### 27. Experiments 26 and 23 together: the jet's band, and an affricate's frication held through its VOT (reverted)
+
+- Hypothesis: experiment 26's two breaks were the male affricates' second halves, which TSP
+  measures: the release's opening jet, its area small and growing (a band up to 10 kHz), then
+  [h]. Experiment 23 holds the /ʃ/ constriction through that half (the frication is the VOT); alone
+  it took the male /tʃ/ centroid to 3369 Hz (cost 0) and broke only the female /tʃ/ centroid
+  (3359 → 3076), which experiment 26 raises (3392 → 3596). Each fixes the other's break.
+- Change: experiment 26's band (unchanged, cap 10 kHz) and experiment 23's patch, rebuilt from its
+  entry: `planner.rs` computes the aspiration test and VOT once per consonant and holds a
+  voiceless affricate's /ʃ/ gesture to `t1 + 0.4·VOT + 0.02` (a voiced one's to `t1 + 0.02`);
+  `durations.rs` gives a stressed vowel after a voiceless affricate the stops' 20 ms aspiration
+  allowance. No new values.
+- Real speakers (TSP): training 1.517 → 1.340 (−0.177), held-out 1.631 → 1.446, but **WORSE**:
+  one term broke, **male centroid dʒ 0 → 0.54** (2880 → 3556 Hz, men 3072; the limit is about
+  3540).
+  - Male 0.974 → **0.863** (held-out 1.025 → 0.886); level 0.68 → 0.60, sibilants 1.38 → 1.17,
+    timing 0.86 → 0.82. Level tʃ 4.27 → 2.13 (−18.8 → −15.6 dB), centroid z 3.14 → 2.48, s 2.71
+    → 2.14, level p 1.60 → 1.08, centroid tʃ 0.30 → 0 (3725 → 3376 Hz), duration z 2.16 → 1.86,
+    duration tʃ 1.66 → 1.37, duration k 3.58 → 3.35, level s 0.22 → 0. Against: burst d 0.46 →
+    0.78, duration n 1.89 → 1.99.
+  - Female 2.059 → 1.817 (held-out 2.238 → 2.006): level tʃ 9.57 → 8.13, centroid dʒ 3.71 → 2.61,
+    s 4.50 → 3.52, level s 1.69 → 0.95, z 7.37 → 6.71, ʃ 2.21 → 1.78, burst t 2.11 → 1.64, level
+    dʒ 1.82 → 1.37. Against: **centroid tʃ 0.89 → 1.24** (3392 → 3288 Hz; within the 0.5 limit),
+    duration k 3.61 → 3.91, duration t 0.22 → 0.52, level ð 2.39 → 2.61.
+  - Per token (male /dʒ/ second halves, 1–10 kHz centroid from the renders and MFA's
+    alignment): the short tokens (30 ms) don't move; the long ones (60–110 ms: "edge", "edges",
+    "pages", "raging", "package", "jump", "join") rise 500–1000 Hz. A probe of the male "edge"
+    shows why: its release sweeps the narrowest area from 0.02 to 0.19 cm² over 20 ms, and the
+    1/√A law gives that sweep 10–16 kHz (at the cap) where the held /ʒ/ gets 4.8 kHz.
+- Whisper, singer, bench, tests: not run. The deciding verdict failed.
+- Verdict: reverted. WORSE on one broken term, by about 16 Hz, against the batch's largest
+  step (−0.177 training, −0.185 held-out).
+- Commit: none (log only).
+- Next: experiment 28 bounds the band where the law has no fricative under it.
+  Tried while probing, not judged: a voiced affricate's release with the voiced fricative's
+  abduction (0.035): its centroid rises (male /ˈɑdʒɑ/ 2225 → 3221 Hz) and its level falls 5–8 dB
+  (the weaker voicing), so the male level dʒ would break. Not that.
