@@ -147,6 +147,12 @@ opens a new one, update this list and give the experiment's number.
      the score but breaks θ, the /d/ burst or alignment terms. Experiment 25 kept the female
      pulse at her fold size (0.64 of the male's): every female obstruent about 1.8 dB louder
      against her vowels, TSP 1.584 → 1.517.
+   - Experiment 28 kept the teeth source's band following the jet's 1/√A (5 kHz at the male
+     /ʃ/'s 0.2 cm², bounded at the body's /s/) with experiment 23's affricate patch: TSP 1.517 →
+     1.342, male 0.974 → 0.833 (level tʃ 4.27 → 2.14, centroids s 2.71 → 2.15, z 3.14 → 2.49).
+     Each part alone broke a term (26: the male tʃ and dʒ centroids; 23: the female tʃ centroid;
+     27, both with a 10 kHz cap: the male dʒ centroid). The male /s z/ centroids that remain
+     (4424 and 4059 Hz against 5725 and 5117) are the front cavity's: see experiment 28's "Next".
 
 7. **Stressed vowels in running speech (target 2).** The planned durations are not what
    crushes them. Experiment 14 printed `plan_phrases`' segments: the stressed /ʊ/ of "pushes" is
@@ -1792,3 +1798,78 @@ of the build without it: 1.584 training, 1.706 held-out (male 1.0, female 2.2).
   Tried while probing, not judged: a voiced affricate's release with the voiced fricative's
   abduction (0.035): its centroid rises (male /ˈɑdʒɑ/ 2225 → 3221 Hz) and its level falls 5–8 dB
   (the weaker voicing), so the male level dʒ would break. Not that.
+
+### 28. Experiment 27 with the band bounded at the body's /s/: a release no brighter than a held sibilant (kept)
+
+- Hypothesis: experiment 27 broke only the male /dʒ/ centroid, by about 16 Hz, and per token the
+  rise was in the long /dʒ/ releases: the narrowest area sweeps 0.02–0.19 cm² there, and the
+  1/√A law ran to its 10 kHz cap. The law is grounded on the held sibilants, whose constrictions
+  span 0.085 (/s/) to 0.22 cm² (/ʒ/); a narrower opening is a closure closing or releasing, where
+  the law has no fricative under it and 10 kHz was an arbitrary bound. Stopping the band at the
+  narrowest jet a fricative holds, the body's /s/ (the calibration target 0.085 cm² × its scale²),
+  leaves every held sibilant's band as it was in 27 (the male /s/ of /ˈɑsɑ/ holds 0.089–0.097
+  cm²) and makes a release as bright as an /s/, no brighter.
+- Change: experiment 27 (26's band and 23's affricate patch), with the 10 kHz cap replaced by
+  `TEETH_LP_NARROWEST` = 0.085 cm² × scale²: `lp = 5000·√(0.2/max(A, 0.085·k²))`, at most 7.7 kHz
+  (male) and 8.5 kHz (female). `crates/chimera/src/voice/human_airway.rs`,
+  `crates/chimera/src/phonetics/planner.rs`, `durations.rs`. No new free value: the bound is the
+  /s/'s calibration target.
+- Real speakers (TSP): training 1.517 → **1.342 (BETTER, −0.175)**, held-out 1.631 → 1.458.
+  - Male 0.974 → **0.833** (held-out 1.025 → 0.903). Level 0.68 → 0.60, sibilants 1.38 → 1.07,
+    timing 0.86 → 0.84. Level tʃ 4.27 → 2.14 (−18.8 → −15.6 dB), centroid z 3.14 → 2.49 (3889 →
+    4059 Hz), s 2.71 → 2.15 (4229 → 4424), level p 1.60 → 1.08, centroid tʃ 0.30 → 0 (3725 →
+    3376), duration z 2.16 → 1.86, duration v 0.63 → 0.36, duration tʃ 1.66 → 1.41, level s 0.22 →
+    0, duration m 0.36 → 0.20, level b 0.40 → 0.28. Centroid dʒ stays at 0 (2880 → 3216 Hz; 27 had
+    3556). Against: **burst d 0.46 → 0.88** (−8.2 → −7.6 dB; +0.42, under the 0.5 limit),
+    duration d 0.21 → 0.35, duration n 1.89 → 1.99.
+  - Female 2.059 → 1.851 (held-out 2.238 → 2.012). Level 1.49 → 1.38, sibilants 3.73 → 3.24,
+    timing 0.95 → 0.93. Level tʃ 9.57 → 8.13, centroid s 4.50 → 3.52 (4728 → 5124 Hz), dʒ 3.71 →
+    2.85, level s 1.69 → 0.96, z 7.37 → 6.71, duration of a final stressed vowel 0.53 → 0, level
+    dʒ 1.82 → 1.38, centroid ʃ 2.21 → 1.78 (3350 → 3435), burst t 2.11 → 1.74, final bursts 1.28
+    → 0.92. Against: **centroid tʃ 0.89 → 1.35** (3392 → 3254 Hz; +0.47, the closest to the
+    limit), duration k 3.61 → 3.91, duration t 0.22 → 0.52, level ð 2.39 → 2.67, burst g 0 → 0.18.
+  - Diagnostics: the male vowel band 1–2 kHz doesn't move (−19.7 dB, men −10.7); female −17.1 →
+    −17.5.
+- Speech (Whisper, guard): training 38.48 → 39.80 % (NO CLEAR CHANGE, so not WORSE), held-out
+  43.33 → 45.00 %. Harvard male 28.5 → 30.75, nonsense male 44.23 → 45.92; Harvard female 44.0
+  → 45.75, nonsense female 37.75 → 37.18. Training rate at each offset: 37.42 to 43.05.
+  - Wrong: the male "chicken leg" (2.6 → 5.8, "These taste like a rare dish", as experiment 15
+    found: its stressed /ɪ/ is squeezed between the held frication and the /k/), the female "Rice
+    is often served" (3.8 → 6.0, "short and round and bold"), the male "Some bright doors" (4.2 →
+    4.8, "A sunrise door").
+  - Right: the female "chicken leg" (5.2 → 3.6, heard whole), the male "hogs were fed chopped
+    corn" (2.2 → 1.6), the male "Four hours of steady work" (4.6 → 3.8), the female "thrown" (0.4
+    → 0).
+- Singer (guard): training 0.587 → 0.585 against the baseline (NO CLEAR CHANGE, −0.002 like for
+  like; experiment 25 had 0.582), held-out 0.805 → 0.805. No guard broken: 0 of 5793 notes off
+  time, 0 dropped gestures, note MCD 8.580 → 8.590 dB (baseline 8.614), envelope correlation
+  0.813, pitch error 4.86 cents.
+- Speed: `os=2` 14.9 % (baseline 14.7 %, experiment 25 14.9 %), load average 10 after the judges.
+- Tests: fixtures blessed twice (beatbox-bar, planning.json, voice-artic-sweep,
+  voice-release-cancel and the three voice-speech renders move; the first run fails only
+  `engine_plays_the_beatbox_bar_like_the_typescript_worklet`, the fixture-order case), then
+  `cargo test --workspace --no-fail-fast` 116 pass, 0 fail, 2 ignored; `bun run test` 30 pass;
+  `bun run typecheck` clean. Fixtures restored. No `src/wasm/` or worklet change, so no e2e run.
+- Verdict: kept. TSP BETTER with no term broken, Whisper not WORSE, the singer guard holds, the
+  bench is unchanged and the tests pass. The margins are thin on two terms (male burst d +0.42,
+  female centroid tʃ +0.47) and the male "chicken leg" is heard worse; listen to those.
+  `out/hill/best` and `out/tsp/best` are this run; experiment 25's are in
+  /Volumes/hd/tmp/aside-10-31/.
+- Commit: e419226.
+- Next:
+  - The male /s z/ centroids are still the largest male sibilant costs (2.15, 2.49): 4424 and
+    4059 Hz against 5725 and 5117. The source's band moved them 5 %; the rest is the front cavity
+    (lead 6's band table: the /s/ resonance an octave low, a 2.6–3.4 cm² chamber between the
+    constriction and the incisors, 2 cm long in the male /ˈɑsɑ/, where a real /s/ has the blade
+    close to the lower incisors and no sublingual space). That is geometry and `chimera
+    calibrate`, larger than one run.
+  - The male "chicken" /ɪ/: the affricate's held frication now ends where its VOT does, and the
+    short stressed vowel between it and the /k/ closure is left with about 20 ms of voicing (lead
+    7). Experiment 17's aspiration allowance of the full VOT is the candidate.
+  - Male burst d (now 0.88, the people's −10.4 dB against −7.6) and the female /tʃ/ centroid
+    (1.35) have the least room for the next change.
+  - Tried while probing, not judged: the band from the measured v = U/A (smoothed) instead of a
+    constant v. In the male /ˈɑ_ɑ/ probes v/D is about 4300 for /ʃ/, 9200 for /s/, 4000 for /z/
+    and 1500 for /ʒ/, and the female's barely above the male's: /s/ would brighten more, but /z/
+    and the voiced affricates would get darker than now, against the data (men's /z/ is only 11 %
+    below their /s/), and the female /tʃ/ would lose what 26 gave it.
