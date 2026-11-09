@@ -206,6 +206,8 @@ if (beatSource) {
       sp.from = i === 0 ? 0 : onBar >= prev ? onBar : onBeat >= prev ? onBeat : sp.first;
     });
     const sourceAt = k => { let sp = spans[0]; for (const x of spans) if (x.from <= k) sp = x; return k + sp.D; };
+    // where each stretch of the performance comes from in the song (compare-beat.py --song cuts the song to match)
+    writeFileSync(join(parts, 'song-map.json'), JSON.stringify({ step, origin, spans: spans.map(sp => ({ section: sp.sec.name, from: sp.from, songStep: sp.from + sp.D })) }));
     seqParts = arrange(seq, steps, sourceAt);
     console.log(`song beat: ${seq.notes.length} notes at ${seq.bpm} BPM; ${spans.map(sp => `${sp.sec.name || 'section'} at the song's ${(origin + (sp.first + sp.D) * step).toFixed(1)} s${sp.sec.song ? ` (${sp.sec.song.agree} of ${sp.sec.song.of} words agree)` : ''}`).join('; ')}`);
   } else {
@@ -277,6 +279,8 @@ CHOIR.forEach((v, i) => {
 });
 console.log(`beat: ${half} BPM half-time over ${span.toFixed(1)} s; levels per 6.5 s: ${level.map((l, k) => (drop[k] ? l + 'v' : l)).join(' ')} (v = drop); lead-ins skipped: ${leadIns.map(x => x.toFixed(3)).join(', ')} s`);
 
+// the song's drums on the 3D kit panel (the duet page; the side view has no panels)
+if (threeD && seqParts?.drums) heads.push('--panel', `Drums:${join(parts, 'kit.json')}:kit`);
 const tool = threeD ? 'tools/performance/show-heads.mjs' : 'tools/performance/render-heads.mjs';
 const r = spawnSync(process.execPath, [join(repo, tool), workScore, resolve(outputPath), ...heads, '--', ...rapArgs], { stdio: 'inherit' });
 process.exit(r.status ?? 1);

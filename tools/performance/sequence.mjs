@@ -102,16 +102,18 @@ export function arrange(seq, steps, sourceAt, { split = 48 } = {}) {
   }
   const parted = seq.notes.some(n => n.part);
   const isBass = n => (parted ? n.part === 'bass' : n.midi < split);
-  const isChord = n => (parted ? n.part === 'chord' : n.midi >= split);
+  const isChord = n => (parted ? n.part === 'chord' : n.midi >= split);   // a riff (part melody) goes to the synth, not the choir
   const drums = parted && seq.notes.some(n => DRUM[n.part]) ? { Kick: [], Snare: [], Hats: [] } : null;
   const hits = [];
   const played = [];                    // every note as placed, in performance steps
+  const riff = [];                      // a transcription's riff: { step, midi, length }
   const bass = [];
   const voices = [[], [], []];          // tenor, alto, soprano: [start step, midi, length]
   for (let k = 0; k < steps; k++) {
     const src = sourceAt(k);
     const ns = src == null || src < 0 ? [] : at.get(src) ?? [];
     for (const n of ns) played.push({ ...n, time: k });
+    for (const n of ns) if (n.part === 'melody') riff.push({ step: k, midi: n.midi, length: n.length });
     const low = ns.filter(isBass).sort((a, b) => a.midi - b.midi);
     // a transcription's bass notes are held for their length (a long 808), not one thump each
     const hold = parted && low.length && low[0].length > 1 ? `~${Math.round(low[0].length)}` : '';
@@ -144,7 +146,7 @@ export function arrange(seq, steps, sourceAt, { split = 48 } = {}) {
     });
     return notes;
   });
-  return { bass: bass.join(' '), melodies, drums: drums && Object.fromEntries(Object.entries(drums).map(([h, x]) => [h, x.join(' ')])), hits, played };
+  return { bass: bass.join(' '), melodies, drums: drums && Object.fromEntries(Object.entries(drums).map(([h, x]) => [h, x.join(' ')])), hits, played, riff };
 }
 
 /**

@@ -3,6 +3,7 @@
 // all replayed from their telemetry by the duet page (?show=<id>) and recorded frame-exact by
 // tools/duet-video.ts on this machine's GPU.
 // usage: bun tools/performance/show-heads.mjs score.json out.mp4 --head Label:voice.tele:voice.wav[:gain[:offset s]] [--head …]
+//        [--panel Label:hits.json[:kit[:sound.wav[:gain]]]]
 //        [--beat-gain g] [--fps 25] [--workers 4] [--no-video] [-- render rap options]
 // The show goes in public/shows/<out's name>/ (gitignored: shows are often of songs we can't publish).
 // offset: seconds of a head's start to skip (sound and picture), so a late first hit lands on time.
@@ -17,6 +18,7 @@ const dash = argv.indexOf('--');
 const own = dash < 0 ? argv : argv.slice(0, dash);
 const rapArgs = dash < 0 ? [] : argv.slice(dash + 1);
 const heads = [];
+const panels = [];
 let beatGain = 0.55, fps = '25', workers = '4', video = true;
 const positional = [];
 for (let i = 0; i < own.length; i++) {
@@ -25,6 +27,11 @@ for (let i = 0; i < own.length; i++) {
     const [label, tele, wav, gain = '1', offset = '0'] = (own[++i] ?? '').split(':');
     if (!label || !tele || !wav) throw new Error('--head needs Label:voice.tele:voice.wav[:gain[:offset s]]');
     heads.push({ label, tele: resolve(tele), wav: resolve(wav), gain: Number(gain), offset: Number(offset) });
+  } else if (a === '--panel') {
+    // an instrument panel (the drum kit: a hit list .json), with its sound if it has one
+    const [label, json, kind = 'kit', wav = '', gain = '1'] = (own[++i] ?? '').split(':');
+    if (!label || !json) throw new Error('--panel needs Label:hits.json[:kind[:sound.wav[:gain]]]');
+    panels.push({ label, json: resolve(json), kind, wav: wav ? resolve(wav) : '', gain: Number(gain) });
   } else if (a === '--beat-gain') beatGain = Number(own[++i]);
   else if (a === '--fps') fps = own[++i];
   else if (a === '--workers') workers = own[++i];
@@ -33,7 +40,7 @@ for (let i = 0; i < own.length; i++) {
 }
 const [scorePath, outputPath] = positional;
 if (!scorePath || !outputPath) throw new Error('usage: bun show-heads.mjs score.json out.mp4 --head Label:tele:wav[:gain[:offset]] … [-- render rap options]');
-if (heads.length > 8) throw new Error('at most eight heads fit beside the lead');
+if (heads.length + panels.length > 8) throw new Error('at most eight heads and panels fit beside the lead');
 const repo = resolve(new URL('../..', import.meta.url).pathname);
 const ffmpeg = process.env.FFMPEG || 'ffmpeg';
 const id = basename(outputPath).replace(/\.[^.]+$/, '').replace(/[^A-Za-z0-9_-]+/g, '-');
@@ -57,8 +64,9 @@ const leadPeak = wavPeak(lead + '.wav');
 if (!(leadPeak >= 1e-4)) throw new Error('The voice rendered silent.');
 
 // the mix (mix.mjs): the lead and each head treated by its role, the beat glued and ducked under the lead
-const args = ['-nostdin', '-v', 'error', '-y', '-i', lead + '.wav', ...heads.flatMap(h => ['-i', h.wav])];
-const graph = mixGraph({ lead: { index: 0, peak: leadPeak }, heads: heads.map((h, k) => ({ ...h, index: k + 1, peak: wavPeak(h.wav) })), beatGain });
+const sounding = [...heads, ...panels.filter(p => p.wav).map(p => ({ label: p.label, wav: p.wav, gain: p.gain, offset: 0 }))];
+const args = ['-nostdin', '-v', 'error', '-y', '-i', lead + '.wav', ...sounding.flatMap(h => ['-i', h.wav])];
+const graph = mixGraph({ lead: { index: 0, peak: leadPeak }, heads: sounding.map((h, k) => ({ ...h, index: k + 1, peak: wavPeak(h.wav) })), beatGain });
 args.push('-filter_complex', graph.filter, '-map', `[${graph.label}]`, '-c:a', 'aac', '-b:a', '192k', join(dir, 'mix.m4a'));
 const mix = spawnSync(ffmpeg, args, { stdio: 'inherit' });
 if (mix.status !== 0) throw new Error('the mix failed');
@@ -74,9 +82,15 @@ heads.forEach(h => {
   copyFileSync(h.tele, join(dir, file));
   voices.push({ name: h.label, tele: file, ...(drum ? { kind: '808' } : {}), ...(h.offset > 0 ? { offset: +h.offset.toFixed(4) } : {}) });
 });
+// the instrument panels first among the band, so the kit sits next to the lead
+for (const p of panels) {
+  const file = p.label.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '.json';
+  copyFileSync(p.json, join(dir, file));
+  voices.splice(1, 0, { name: p.label, tele: file, kind: p.kind });
+}
 const bpm = Number(score.bpm) || 120;
 writeFileSync(join(dir, 'show.json'), JSON.stringify({ title: score.title ?? id, audio: 'mix.m4a', bpm: bpm / 2, downbeat: 0, layout: 'lead', voices }, null, 1));
-console.log(`show ${id}: public/shows/${id}/ (lead + ${heads.length} heads)`);
+console.log(`show ${id}: public/shows/${id}/ (lead + ${heads.length} heads${panels.length ? ` + ${panels.map(p => p.label).join(', ')}` : ''})`);
 if (!video) process.exit(0);
 
 // capture: the app served from this checkout (vite's dev server serves public/ as it is), then

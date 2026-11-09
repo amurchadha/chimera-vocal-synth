@@ -13,11 +13,12 @@ bass.wav, other.wav) to a notes file that beat-heads.mjs --beat reads, on the so
 - Bass: pitch per frame (YIN on the bass stem, 27-275 Hz); a note per attack (a 6 dB jump) or per
   pitch that settles a semitone away, held while it sounds, its pitch the median after its first
   40 ms (an 808 starts sharp and falls).
+- Riff: at each attack in the other stem, its strongest pitch from G4 up (harmonic sum).
 - Chords: per half bar, the other stem's pitch classes (110-2000 Hz) against the 24 major and minor
   triads; the best, if it sounds, as three notes.
 
 Output: { bpm, origin, song: true, notes: [{ midi, time, length, part, accent? }] } with time and
-length in 16ths from step 0, part kick | snare | ghost | hats | bass | chord. Needs numpy and
+length in 16ths from step 0, part kick | snare | ghost | hats | bass | chord | melody. Needs numpy and
 soundfile (the demucs env has both). The stems and the output are the song's: keep them private.
 """
 import json
@@ -163,6 +164,42 @@ def bass(x, sr, origin, step, count):
     return notes
 
 
+def melody(x, sr, origin, step, count, low=62):
+    """the riff: at each step where the other stem has an attack (its 300 Hz-6 kHz flux in the top
+    30%), the strongest pitch at or above `low` by harmonic sum (6 harmonics, weights 0.8^h); held
+    until the next attack, at most 6 steps"""
+    S, f, t = spectrogram(x, sr, 2048, 256)
+    L = np.log1p(np.sqrt(S) * 20)
+    flux = np.maximum(0, np.diff(L, axis=0))[:, (f > 300) & (f < 6000)].sum(1)
+    tf = t[1:]
+    on = np.zeros(count)
+    for k in range(count):
+        c = origin + k * step
+        m = (tf >= c - 0.02) & (tf < c + 0.04)
+        on[k] = flux[m].max() if m.any() else 0
+    attacks = np.where(on >= np.percentile(on, 70))[0]
+    S, f, t = spectrogram(x, sr, 4096, 512)
+    A = np.sqrt(S)
+    cands = np.arange(low, 88)
+    sal = np.zeros((len(S), len(cands)))
+    for j, m in enumerate(cands):
+        f0 = 440 * 2 ** ((m - 69) / 12)
+        for h in range(1, 7):
+            if h * f0 > 8000:
+                break
+            lo, hi = np.searchsorted(f, h * f0 * 2 ** (-0.4 / 12)), np.searchsorted(f, h * f0 * 2 ** (0.4 / 12)) + 1
+            sal[:, j] += 0.8 ** (h - 1) * A[:, lo:hi].max(1)
+    best = cands[sal.argmax(1)]
+    notes = []
+    for i, k in enumerate(attacks):
+        m = (t >= origin + k * step) & (t < origin + (k + 1) * step)
+        if not m.any():
+            continue
+        nxt = attacks[i + 1] if i + 1 < len(attacks) else count
+        notes.append({"midi": int(np.median(best[m])), "time": int(k), "length": int(min(6, nxt - k)), "part": "melody"})
+    return notes
+
+
 def chords(x, sr, origin, step, count, span=8):
     S, f, t = spectrogram(x, sr, 8192, 1024)
     keep = (f >= 110) & (f < 2000)
@@ -211,10 +248,11 @@ def main():
     line = bass(xb, srb, origin, step, count)
     xo, sro = mono(f"{stems}/other.wav")
     harmony = chords(xo, sro, origin, step, count)
-    notes = sorted(hits + line + harmony, key=lambda n: (n["time"], n["midi"]))
+    riff = melody(xo, sro, origin, step, count)
+    notes = sorted(hits + line + harmony + riff, key=lambda n: (n["time"], n["midi"]))
     with open(out, "w") as fh:
         json.dump({"bpm": bpm, "origin": round(origin, 4), "song": True, "notes": notes}, fh)
-    print(f"{bpm} BPM, step 0 at {origin:.3f} s, {count} steps; drum hits {kinds}; bass notes {len(line)}; chords {len(harmony) // 3}")
+    print(f"{bpm} BPM, step 0 at {origin:.3f} s, {count} steps; drum hits {kinds}; bass notes {len(line)}; chords {len(harmony) // 3}; riff notes {len(riff)}")
 
 
 if __name__ == "__main__":
