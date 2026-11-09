@@ -94,6 +94,9 @@ for (const p of panels) {
   copyFileSync(p.json, join(dir, file));
   voices.splice(1, 0, { name: p.label, tele: file, kind: p.kind });
 }
+// the drum machine (the 808's panel) lights its kick, snare and hat rows from the kit's hits
+const kitPanel = voices.find(v => v.kind === 'kit');
+if (kitPanel) for (const v of voices) if (v.kind === '808') v.kit = kitPanel.tele;
 const bpm = Number(score.bpm) || 120;
 writeFileSync(join(dir, 'show.json'), JSON.stringify({ title: score.title ?? id, audio: 'mix.m4a', bpm: bpm / 2, downbeat: 0, layout: 'lead', voices }, null, 1));
 console.log(`show ${id}: public/shows/${id}/ (lead + ${heads.length} heads${panels.length ? ` + ${panels.map(p => p.label).join(', ')}` : ''})`);
