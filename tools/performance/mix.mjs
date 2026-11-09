@@ -13,6 +13,8 @@
 export function roleOf(label) {
   const l = label.toLowerCase();
   if (/808/.test(l)) return '808';
+  if (/drums|kit/.test(l)) return 'kit';
+  if (/riff|synth|lead synth/.test(l)) return 'riff';
   if (/kick/.test(l)) return 'kick';
   if (/snare|clap|rim/.test(l)) return 'snare';
   if (/hat|cymbal/.test(l)) return 'hats';
@@ -28,13 +30,18 @@ const TREAT = {
   bass: 'lowpass=f=480',
   '808': 'lowpass=f=320,acompressor=threshold=0.4:ratio=3:attack=5:release=150:makeup=1.2',
   choir: 'highpass=f=140,aecho=0.8:0.7:61|113|167|241:0.36|0.28|0.22|0.15',
+  // a whole drum kit (kit.mjs): glued a little, no EQ (its sounds are already shaped)
+  kit: 'acompressor=threshold=0.35:ratio=2.5:attack=8:release=100:makeup=1.1',
+  riff: 'highpass=f=180,aecho=0.8:0.4:83|167:0.18|0.1',
   other: 'anull',
 };
 
 export function mixGraph({ lead, heads, beatGain = 0.55 }) {
   const g = [];
   const n = x => x.toFixed(5);
-  const hasKey = heads.some(h => roleOf(h.label) === 'kick') && heads.some(h => roleOf(h.label) === 'choir');
+  // the choir pumps under the kick, or under the whole kit when a kit plays the drums
+  const keyRole = heads.some(h => roleOf(h.label) === 'kit') ? 'kit' : 'kick';
+  const hasKey = heads.some(h => roleOf(h.label) === keyRole) && heads.some(h => roleOf(h.label) === 'choir');
   // the lead: level, clean, presence, levelled; a copy keys the beat's ducking
   g.push(`[${lead.index}:a]volume=${n(0.86 / lead.peak)},highpass=f=70,equalizer=f=3000:t=q:w=1.2:g=2.5,acompressor=threshold=0.25:ratio=3:attack=5:release=60:makeup=1.25,asplit=2[lead][leadkey]`);
   const beat = [];
@@ -43,8 +50,8 @@ export function mixGraph({ lead, heads, beatGain = 0.55 }) {
     const role = roleOf(h.label);
     const trim = h.offset > 0 ? `atrim=start=${h.offset.toFixed(4)},asetpts=PTS-STARTPTS,` : '';
     const level = `volume=${n((0.86 * beatGain * h.gain) / Math.max(1e-4, h.peak))}`;
-    if (role === 'kick' && hasKey) {
-      g.push(`[${h.index}:a]${trim}${level},${TREAT.kick},asplit=2[b${k}][kickkey]`);
+    if (role === keyRole && hasKey) {
+      g.push(`[${h.index}:a]${trim}${level},${TREAT[role]},asplit=2[b${k}][kickkey]`);
       beat.push(`[b${k}]`);
     } else if (role === 'choir' && hasKey) {
       g.push(`[${h.index}:a]${trim}${level},${TREAT.choir}[c${k}]`);

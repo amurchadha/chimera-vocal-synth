@@ -44,7 +44,7 @@ const CLICK = 0.002; // beater click length, s
 const DISP_SCALE = 1.4;
 
 /** a held note loses this much over 4 s (plus the air loading), then dies to -60 dB in RELEASE s */
-const HOLD_DB = 2, RELEASE = 0.18;
+const HOLD_DB = 2, RELEASE = 0.18, GLIDE = 0.12;
 export const midiHz = (m) => 440 * 2 ** ((m - 69) / 12);
 
 /** parse the pattern into hits: { step, note, acc } */
@@ -110,8 +110,11 @@ export function render808(pattern, bpm, opts = {}) {
       }
       active = active.filter((p) => i - p.s < pulseN - 1);
     }
+    // a held note keeps its swing, so its tension modulation would hold it sharp (3-4 semitones,
+    // measured): the stiffening fades over GLIDE s after the hit and it settles on its note
+    const kappa = holdEnd >= 0 ? KAPPA * Math.max(0, 1 - (i - lastStart) / (GLIDE * SR)) : KAPPA;
     if (w0 > 0) {
-      const stiff = w0 * w0 * (1 + KAPPA * x * x);
+      const stiff = w0 * w0 * (1 + kappa * x * x);
       const damp = holdEnd < 0 ? sigma : i < holdEnd ? sigmaHold : sigmaRelease;
       // once a held note's glide is over (~100 ms), the air loading eases too, so it sustains
       const air = holdEnd >= 0 && i < holdEnd && i - lastStart > 0.1 * SR ? CD * 0.1 : CD;
@@ -131,12 +134,12 @@ export function render808(pattern, bpm, opts = {}) {
     level = Math.max(Math.abs(y), level * 0.9995);
     if (i % fr === fr / 2) {
       const k = (i - fr / 2) / fr;
-      const weff = w0 * Math.sqrt(1 + KAPPA * x * x);
+      const weff = w0 * Math.sqrt(1 + kappa * x * x);
       const a = w0 ? Math.sqrt(x * x + (v / weff) ** 2) : 0;
       track.note[k] = note;
       track.disp[k] = Math.max(-1, Math.min(1, x / DISP_SCALE));
       track.amp[k] = Math.min(1, a / DISP_SCALE);
-      track.hz[k] = note ? midiHz(note) * Math.sqrt(1 + (KAPPA * a * a) / 2) : 0;
+      track.hz[k] = note ? midiHz(note) * Math.sqrt(1 + (kappa * a * a) / 2) : 0;
       track.energy[k] = Math.min(1, level);
     }
   }

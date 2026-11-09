@@ -3,7 +3,7 @@
 // all replayed from their telemetry by the duet page (?show=<id>) and recorded frame-exact by
 // tools/duet-video.ts on this machine's GPU.
 // usage: bun tools/performance/show-heads.mjs score.json out.mp4 --head Label:voice.tele:voice.wav[:gain[:offset s]] [--head …]
-//        [--panel Label:hits.json[:kit[:sound.wav[:gain]]]]
+//        [--panel Label:hits.json[:kit[:sound.wav[:gain]]]] [--audio Label:sound.wav[:gain]]
 //        [--beat-gain g] [--fps 25] [--workers 4] [--no-video] [-- render rap options]
 // The show goes in public/shows/<out's name>/ (gitignored: shows are often of songs we can't publish).
 // offset: seconds of a head's start to skip (sound and picture), so a late first hit lands on time.
@@ -19,6 +19,7 @@ const own = dash < 0 ? argv : argv.slice(0, dash);
 const rapArgs = dash < 0 ? [] : argv.slice(dash + 1);
 const heads = [];
 const panels = [];
+const audios = [];
 let beatGain = 0.55, fps = '25', workers = '4', video = true;
 const positional = [];
 for (let i = 0; i < own.length; i++) {
@@ -32,6 +33,11 @@ for (let i = 0; i < own.length; i++) {
     const [label, json, kind = 'kit', wav = '', gain = '1'] = (own[++i] ?? '').split(':');
     if (!label || !json) throw new Error('--panel needs Label:hits.json[:kind[:sound.wav[:gain]]]');
     panels.push({ label, json: resolve(json), kind, wav: wav ? resolve(wav) : '', gain: Number(gain) });
+  } else if (a === '--audio') {
+    // a sound with nothing on screen (the riff's synth)
+    const [label, wav, gain = '1'] = (own[++i] ?? '').split(':');
+    if (!label || !wav) throw new Error('--audio needs Label:sound.wav[:gain]');
+    audios.push({ label, wav: resolve(wav), gain: Number(gain), offset: 0 });
   } else if (a === '--beat-gain') beatGain = Number(own[++i]);
   else if (a === '--fps') fps = own[++i];
   else if (a === '--workers') workers = own[++i];
@@ -64,7 +70,7 @@ const leadPeak = wavPeak(lead + '.wav');
 if (!(leadPeak >= 1e-4)) throw new Error('The voice rendered silent.');
 
 // the mix (mix.mjs): the lead and each head treated by its role, the beat glued and ducked under the lead
-const sounding = [...heads, ...panels.filter(p => p.wav).map(p => ({ label: p.label, wav: p.wav, gain: p.gain, offset: 0 }))];
+const sounding = [...heads, ...panels.filter(p => p.wav).map(p => ({ label: p.label, wav: p.wav, gain: p.gain, offset: 0 })), ...audios];
 const args = ['-nostdin', '-v', 'error', '-y', '-i', lead + '.wav', ...sounding.flatMap(h => ['-i', h.wav])];
 const graph = mixGraph({ lead: { index: 0, peak: leadPeak }, heads: sounding.map((h, k) => ({ ...h, index: k + 1, peak: wavPeak(h.wav) })), beatGain });
 args.push('-filter_complex', graph.filter, '-map', `[${graph.label}]`, '-c:a', 'aac', '-b:a', '192k', join(dir, 'mix.m4a'));

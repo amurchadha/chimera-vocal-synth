@@ -6,11 +6,13 @@
 // the beat. The working files (the heads, the snapped score) go in <out>.parts/ and are kept.
 // --3d: the heads in 3D on the duet page (show-heads.mjs: the lead large, the band beside it),
 // captured on the GPU, instead of the side view with the band in tiles (render-heads.mjs).
-// usage: bun tools/performance/beat-heads.mjs score.json out.mp4 [--snap] [--3d] [--build] [--breath 0.25] [--beat <onlinesequencer link | notes.json>] [--song-words words.json] [--plan] [-- render rap options]
+// usage: bun tools/performance/beat-heads.mjs score.json out.mp4 [--snap] [--3d] [--build] [--breath 0.25] [--beat <onlinesequencer link | notes.json>] [--song-words words.json] [--riff pluck|lead] [--plan] [--audio-only] [-- render rap options]
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { render808 } from './808.mjs';
+import { renderKit } from './kit.mjs';
+import { renderSynth } from './synth.mjs';
 import { arrange, findLoops, loadSequence, songOffset } from './sequence.mjs';
 // 16-bit mono WAV at 48 kHz
 const writeWav = (path, x) => {
@@ -28,11 +30,14 @@ const rapArgs = dash < 0 ? [] : argv.slice(dash + 1);
 const snap = own.includes('--snap');
 const threeD = own.includes('--3d');
 const build = own.includes('--build');
+const audioOnly = own.includes('--audio-only');
+const riffAt = own.indexOf('--riff');
+const riffPreset = riffAt >= 0 ? own[riffAt + 1] : 'pluck';
 const beatAt = own.indexOf('--beat');
 const beatSource = beatAt >= 0 ? own[beatAt + 1] : null;
 const songWordsAt = own.indexOf('--song-words');
 const songWords = songWordsAt >= 0 ? JSON.parse(readFileSync(own[songWordsAt + 1], 'utf8')) : null;
-const [scorePath, outputPath] = own.filter((a, i) => a !== '--snap' && a !== '--plan' && a !== '--3d' && a !== '--build' && a !== '--breath' && own[i - 1] !== '--breath' && a !== '--beat' && own[i - 1] !== '--beat' && a !== '--song-words' && own[i - 1] !== '--song-words');
+const [scorePath, outputPath] = own.filter((a, i) => a !== '--snap' && a !== '--plan' && a !== '--audio-only' && a !== '--riff' && own[i - 1] !== '--riff' && a !== '--3d' && a !== '--build' && a !== '--breath' && own[i - 1] !== '--breath' && a !== '--beat' && own[i - 1] !== '--beat' && a !== '--song-words' && own[i - 1] !== '--song-words');
 if (!scorePath || !outputPath) throw new Error('usage: bun beat-heads.mjs score.json out.mp4 [--snap] [--3d] [-- render rap options]');
 const repo = resolve(new URL('../..', import.meta.url).pathname);
 const chimera = join(repo, 'target/release/chimera');
@@ -231,7 +236,8 @@ for (const h of beatHeads) {
   const phrases = KIT[h.label].map(p => p.split(/[\s|]+/).filter(Boolean));
   // the song's own drums (a transcription) play in 16ths of the full bpm
   const theirs = seqParts?.drums?.[h.label];
-  if (theirs && !/[^.\s]/.test(theirs)) continue;
+  // a song's own drums play on the modeled kit (kit.mjs), not on beatboxing heads
+  if (theirs !== undefined && h.label !== '808') continue;
   const hbpm = theirs ? bpm : h.bpm;
   const steps = theirs ? theirs.split(' ') : level.flatMap((l, k) => {
     const p = phrases[l];
@@ -279,8 +285,19 @@ CHOIR.forEach((v, i) => {
 });
 console.log(`beat: ${half} BPM half-time over ${span.toFixed(1)} s; levels per 6.5 s: ${level.map((l, k) => (drop[k] ? l + 'v' : l)).join(' ')} (v = drop); lead-ins skipped: ${leadIns.map(x => x.toFixed(3)).join(', ')} s`);
 
-// the song's drums on the 3D kit panel (the duet page; the side view has no panels)
-if (threeD && seqParts?.drums) heads.push('--panel', `Drums:${join(parts, 'kit.json')}:kit`);
+// the song's drums: the modeled kit plays the hits, shown on the 3D kit panel; the riff on the synth
+if (seqParts?.drums) {
+  const kitHits = JSON.parse(readFileSync(join(parts, 'kit.json'), 'utf8')).hits;
+  writeWav(join(parts, 'kit.wav'), renderKit(kitHits, { duration: span + 1 }).samples);
+  heads.push('--panel', `Drums:${join(parts, 'kit.json')}:kit:${join(parts, 'kit.wav')}:1`);
+}
+if (seqParts?.riff?.length) {
+  const notes = seqParts.riff.map(n => ({ t: +(n.step * step).toFixed(4), dur: +(Math.max(1, n.length) * step).toFixed(4), midi: n.midi }));
+  writeWav(join(parts, 'riff.wav'), renderSynth(notes, { duration: span + 1, preset: riffPreset }).samples);
+  heads.push('--audio', `Riff:${join(parts, 'riff.wav')}:0.8`);
+  console.log(`riff: ${notes.length} notes on the ${riffPreset} synth`);
+}
+if (audioOnly) heads.push('--no-video');
 const tool = threeD ? 'tools/performance/show-heads.mjs' : 'tools/performance/render-heads.mjs';
 const r = spawnSync(process.execPath, [join(repo, tool), workScore, resolve(outputPath), ...heads, '--', ...rapArgs], { stdio: 'inherit' });
 process.exit(r.status ?? 1);
