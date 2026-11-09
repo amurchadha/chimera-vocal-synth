@@ -3979,3 +3979,35 @@ is private: no lyrics, audio or derived files in git; numbers and line numbers o
 - Test: `talking_fast_shortens_a_voiceless_fricatives_glottal_opening` (phonetics/rap.rs):
   ramps 30 ms at talking speed, under 24 with `--speedup 2` in a 0.12 s word; fails without the
   change.
+
+### 43. The even split in proportion to Klatt's inherent durations (reverted)
+
+- Hypothesis: the even split gives every consonant one share, but a /s/ is naturally about
+  1.5× a /t/ (Klatt 1979's inherent durations); split each word's span in proportion to
+  `klatt_durations` instead.
+- Change: `phonetics/rap.rs`, `RapTiming::Even`: the weight of a segment is its inherent Klatt
+  duration. Diff at /Volumes/hd/tmp/rapgod/words/e43.diff.
+- Judge (as 40, against 42's 56.1 %): **50.8 %** (−5.3): hook 52, verse 53, double time 44
+  (−13); words at 28+ sounds a second 49 → 37 %.
+- Verdict: reverted. In one 16th, the proportions take the vowel's time for the fricatives.
+
+### 44. Talking fast, an aspirated stop's release falls with the syllable, its start kept (reverted)
+
+- Hypothesis (35's next): keep the opening's start (the closure stays devoiced) and shorten
+  only the fall after the release with the syllable: hold and ramp-out to
+  max(18 ms, 50 ms + 0.15·(syllable − 0.2 s)) (Theodore, Miller & DeSteno 2007), when `gq` > 1.
+- Change: `planner.rs`, the aspirated stop's end and ramp-out. Diff at
+  /Volumes/hd/tmp/rapgod/words/e44.diff.
+- Judge: **55.5 %** (−0.6, noise): hook 55, verse 55, double time 56.
+- Verdict: reverted (no gain). `--speedup 3` on 42 (no code): 57.2 % (+1.1, noise; double time
+  57 → 51), so 2 stays.
+
+### 45. More breaths: beat-heads keeps gaps over 0.15 or 0.06 s (no code; not kept)
+
+- Hypothesis: after 40 the 84 s performance is 3 breath groups (one every 27 s; a fast recorded
+  verse breathes about every 4.6 s), so a few real breaths might let phrases start clean.
+- Change: `beat-heads.mjs --breath 0.15` (8 groups, one every 10 s) and `--breath 0.06` (9).
+- Judge (as 40, against 42's 56.1 %): **53.2 %** and **53.3 %** (−2.9, −2.8): hook 57 both,
+  verse 54 and 52, double time 49 and 54. The level over a 27 s group holds within about 1 dB
+  (no lung sag in the model), so the long groups cost nothing.
+- Verdict: the default 0.25 s stays. A voice restart costs words even at a real pause.
