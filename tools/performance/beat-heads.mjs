@@ -216,6 +216,8 @@ if (beatSource) {
     seqParts.bass = seqParts.bass.split(' ').map((x, k) => { const u = Math.floor((k * step) / unit); return drop[u] && k * step - u * unit >= unit / 2 ? '.' : x; }).join(' ');
     console.log(`sequence: ${seq.notes.length} notes at ${seq.bpm} BPM, played at ${bpm}; main loop bars ${loops.main + 1}-${loops.main + loops.bars}, busiest ${loops.busy + 1}-${loops.busy + loops.bars}`);
   }
+  // what the beat should sound like, note by note (compare-beat.py checks the render against it)
+  writeFileSync(join(parts, 'intended.json'), JSON.stringify({ bpm, origin: 0, notes: seqParts.played }));
   // the hits, for a drum kit panel
   if (seqParts.drums) writeFileSync(join(parts, 'kit.json'), JSON.stringify({ hits: seqParts.hits.map(h => ({ t: +(h.step * step).toFixed(4), part: h.part, ...(h.accent ? { accent: true } : {}) })) }));
 }

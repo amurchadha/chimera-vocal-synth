@@ -91,7 +91,7 @@ const DRUM = { kick: ['Kick', 'B'], snare: ['Snare', 'Pf'], ghost: ['Snare', 'K'
  * that plays there (`sourceAt(step)`, null for none), then the bass as an 808 pattern (one token a
  * 16th), three choir melodies ([midi, beats] at the performance's bpm, rests 0) and, when the
  * sequence has drum parts (a transcription: notes with `part`), the drum heads' patterns and the
- * hits for the kit panel. Without parts, the register decides: under `split` is bass, the rest chords.
+ * hits for the kit panel, and `played`: every note where it lands (in performance steps). Without parts, the register decides: under `split` is bass, the rest chords.
  */
 export function arrange(seq, steps, sourceAt, { split = 48 } = {}) {
   const at = new Map();
@@ -105,13 +105,17 @@ export function arrange(seq, steps, sourceAt, { split = 48 } = {}) {
   const isChord = n => (parted ? n.part === 'chord' : n.midi >= split);
   const drums = parted && seq.notes.some(n => DRUM[n.part]) ? { Kick: [], Snare: [], Hats: [] } : null;
   const hits = [];
+  const played = [];                    // every note as placed, in performance steps
   const bass = [];
   const voices = [[], [], []];          // tenor, alto, soprano: [start step, midi, length]
   for (let k = 0; k < steps; k++) {
     const src = sourceAt(k);
     const ns = src == null || src < 0 ? [] : at.get(src) ?? [];
+    for (const n of ns) played.push({ ...n, time: k });
     const low = ns.filter(isBass).sort((a, b) => a.midi - b.midi);
-    bass.push(low.length ? `m:${fit(low[0].midi, 28, 43)}${k % 16 === 0 || low[0].accent ? '>' : ''}` : '.');
+    // a transcription's bass notes are held for their length (a long 808), not one thump each
+    const hold = parted && low.length && low[0].length > 1 ? `~${Math.round(low[0].length)}` : '';
+    bass.push(low.length ? `m:${fit(low[0].midi, 28, 43)}${k % 16 === 0 || low[0].accent ? '>' : ''}${hold}` : '.');
     if (drums) {
       for (const h of Object.values(drums)) h.push('.');
       for (const n of ns) {
@@ -140,7 +144,7 @@ export function arrange(seq, steps, sourceAt, { split = 48 } = {}) {
     });
     return notes;
   });
-  return { bass: bass.join(' '), melodies, drums: drums && Object.fromEntries(Object.entries(drums).map(([h, x]) => [h, x.join(' ')])), hits };
+  return { bass: bass.join(' '), melodies, drums: drums && Object.fromEntries(Object.entries(drums).map(([h, x]) => [h, x.join(' ')])), hits, played };
 }
 
 /**

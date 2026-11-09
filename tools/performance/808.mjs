@@ -7,7 +7,8 @@
  *
  * Pattern: tokens separated by spaces and `|`; one token is one 16th note at <bpm>. `.` or `-`
  * is a rest; `m:NN` is a hit at MIDI note NN (36 = C2 = 65.4 Hz); a trailing `>` accents it
- * (strength 1.3, else 1.0). Step k starts at exactly k*60/bpm/4 s; the first hit is at t = 0.
+ * (strength 1.3, else 1.0); `~L` after it holds the note for L steps (a long 808: it rings on,
+ * fading slowly, until let go, then dies in 0.18 s), e.g. `m:31>~16`. Step k starts at exactly k*60/bpm/4 s; the first hit is at t = 0.
  * The render is the pattern plus a `decay`-second tail.
  *
  * Model: the drum head's fundamental mode as a damped nonlinear oscillator, per sample (48 kHz,
@@ -42,6 +43,8 @@ const PULSE = 0.003; // mallet pulse length, s
 const CLICK = 0.002; // beater click length, s
 const DISP_SCALE = 1.4;
 
+/** a held note loses this much over 4 s (plus the air loading), then dies to -60 dB in RELEASE s */
+const HOLD_DB = 2, RELEASE = 0.18;
 export const midiHz = (m) => 440 * 2 ** ((m - 69) / 12);
 
 /** parse the pattern into hits: { step, note, acc } */
@@ -50,9 +53,9 @@ export function parsePattern(pattern) {
   const hits = [];
   toks.forEach((tok, step) => {
     if (tok === "." || tok === "-") return;
-    const m = /^m:(\d+)(>?)$/.exec(tok);
+    const m = /^m:(\d+)(>?)(?:~(\d+))?$/.exec(tok);
     if (!m) throw new Error(`808: bad token "${tok}"`);
-    hits.push({ step, note: Number(m[1]), acc: m[2] ? 1.3 : 1.0 });
+    hits.push({ step, note: Number(m[1]), acc: m[2] ? 1.3 : 1.0, hold: m[3] ? Number(m[3]) : 0 });
   });
   return { steps: toks.length, hits };
 }
@@ -76,6 +79,10 @@ export function render808(pattern, bpm, opts = {}) {
     note: z(), disp: z(), amp: z(), hz: z(), energy: z(), hit: z(), acc: z(),
   };
   const startOf = hits.map((h) => Math.round(h.step * stepSamples));
+  // a held note (m:NN~L) rings on for L steps (losing only HOLD_DB) and then is let go in RELEASE s
+  const endOf = hits.map((h, k) => (h.hold ? startOf[k] + Math.round(h.hold * stepSamples) : -1));
+  const sigmaHold = Math.log(10 ** (HOLD_DB / 20)) / 4, sigmaRelease = Math.log(1000) / RELEASE;
+  let holdEnd = -1;
   let x = 0, v = 0, hi = 0, note = 0, w0 = 0, accC = 0, lastStart = -1, rng = 12345, level = 0;
   let active = []; // mallet pulses still pushing: { s, f0 }
 
@@ -90,6 +97,7 @@ export function render808(pattern, bpm, opts = {}) {
       active.push({ s, f0: (IMP * h.acc * w0 * 2) / (pulseN * dt) });
       accC = h.acc;
       lastStart = s;
+      holdEnd = endOf[hi - 1];
       const fk = Math.min(frames - 1, Math.floor(s / fr));
       track.hit[fk] = 1;
       track.acc[fk] = h.acc;
@@ -104,7 +112,10 @@ export function render808(pattern, bpm, opts = {}) {
     }
     if (w0 > 0) {
       const stiff = w0 * w0 * (1 + KAPPA * x * x);
-      const c = Math.min(0.5 / dt, 2 * sigma + CD * Math.abs(v));
+      const damp = holdEnd < 0 ? sigma : i < holdEnd ? sigmaHold : sigmaRelease;
+      // once a held note's glide is over (~100 ms), the air loading eases too, so it sustains
+      const air = holdEnd >= 0 && i < holdEnd && i - lastStart > 0.1 * SR ? CD * 0.1 : CD;
+      const c = Math.min(0.5 / dt, 2 * damp + air * Math.abs(v));
       v += dt * (-stiff * x - c * v + F);
       x += dt * v;
     }
