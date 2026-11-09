@@ -66,6 +66,8 @@ export function DuetPage(props: { id: string }) {
   useEffect(() => {
     const t = new Transport();
     setTransport(t);
+    // tools/duet-video.ts drives the playhead from outside, frame by frame
+    (window as unknown as { __duetTransport?: Transport }).__duetTransport = t;
     return () => t.dispose();
   }, []);
 
