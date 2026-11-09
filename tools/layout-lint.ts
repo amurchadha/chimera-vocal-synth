@@ -2,7 +2,8 @@
  * Layout lint: a smoke test of the layout. Loads every mode at phone, tablet and desktop sizes in
  * headless Chromium, before and after audio starts, then some alternate states (every encoder page,
  * every creature, the 3D face, a phrase being spoken) and the duet page (`?show=`, with a short
- * duet it renders first), and fails on mistakes screenshot reviews kept missing:
+ * duet it renders first, and a lead with a band of instruments: drum kit, drum machine, synth
+ * keyboard), and fails on mistakes screenshot reviews kept missing:
  *
  *  - overlap     two pieces of text or controls drawn over each other (DOM text, buttons, inputs,
  *                dials, and text drawn on canvases, which the page reports by wrapping fillText)
@@ -13,6 +14,7 @@
  *  - canvas-edge canvas text running off its canvas
  *  - h-scroll    the page scrolls sideways
  *  - small-text  DOM text under 8 px or canvas text under 7 px
+ *  - empty-cell  the duet's panels leave part of its grid empty (a lead with an odd band)
  *
  * Opt-outs, for things meant to sit on top of other things:
  *  - data-layout="overlay" on an element: it and its contents are exempt from overlap checks
@@ -29,8 +31,10 @@
  * Screenshots of every failing view are saved under --out.
  */
 import { chromium } from "playwright-core";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { basename } from "node:path";
+// @ts-expect-error plain JS module
+import { render808 } from "./performance/808.mjs";
 
 const arg = (name: string) => {
   const i = process.argv.indexOf(`--${name}`);
@@ -253,6 +257,33 @@ function makeDuet(dir: string): void {
   // a long title, to see it trimmed on a phone
   const voices = [{ name: "Lower", tele: "low.tele", melody: "low.json" }, { name: "Upper", tele: "high.tele", melody: "high.json" }];
   writeFileSync(`${dir}/show.json`, JSON.stringify({ title: "A duet with a title long enough to need trimming", audio: "low.wav", bpm: 120, voices }));
+
+  // the lead with a band, in `band/`: the low voice as the lead, then a drum kit, a drum machine
+  // (an 808 with the kit's rows) and a synth keyboard, one bar of each looped over the 3 s
+  const band = `${dir}/band`;
+  mkdirSync(band, { recursive: true });
+  for (const f of ["low.tele", "low.json", "low.wav"]) copyFileSync(`${dir}/${f}`, `${band}/${f}`);
+  const hits = [0, 1, 2].flatMap((b) => [
+    { t: b, part: "kick", accent: true },
+    { t: b + 0.5, part: "snare" },
+    ...[0, 0.25, 0.5, 0.75].map((q) => ({ t: b + q, part: q === 0.75 ? "open" : "hats" })),
+  ]);
+  writeFileSync(`${band}/kit.json`, JSON.stringify({ hits }));
+  const bar = "m:36> . . . | . . m:36 . | . . . . | . . . .";
+  writeFileSync(`${band}/808.json`, JSON.stringify(render808(`${bar} | ${bar}`, 120).track));
+  const notes = [0, 1, 2].flatMap((b) => [
+    ...[67, 70, 74].map((midi) => ({ t: b, dur: 0.9, midi, part: "chord" })),
+    { t: b + 0.25, dur: 0.2, midi: 62, part: "riff" },
+    { t: b + 0.5, dur: 0.4, midi: 74, part: "riff" },
+  ]);
+  writeFileSync(`${band}/keys.json`, JSON.stringify({ notes }));
+  const bandVoices = [
+    { name: "Lead", tele: "low.tele", melody: "low.json" },
+    { name: "Drums", tele: "kit.json", kind: "kit" },
+    { name: "808", tele: "808.json", kind: "808", kit: "kit.json" },
+    { name: "Keys", tele: "keys.json", kind: "keys" },
+  ];
+  writeFileSync(`${band}/show.json`, JSON.stringify({ title: "A lead and a band", audio: "low.wav", bpm: 120, layout: "lead", voices: bandVoices }));
 }
 
 async function main() {
@@ -320,6 +351,21 @@ async function main() {
       await page.locator(".duet-bar button.primary").click();
       // 1.2 s in: both heads singing, a word at each mouth
       await check("duet, playing", 1200);
+      // a lead and its band: a head, the drum kit, the drum machine and the keyboard, every cell filled
+      await page.route("**/shows/lint-band/*", (route) => route.fulfill({ path: `${duetDir}/band/${basename(new URL(route.request().url()).pathname)}` }));
+      await page.goto(new URL("?show=lint-band", url).href, { waitUntil: "networkidle" });
+      await page.waitForSelector(".duet-keys canvas", { timeout: 15000 });
+      await check("duet band", 2000);
+      const filled = await page.evaluate(() => {
+        const grid = document.querySelector(".duet-heads")!, g = grid.getBoundingClientRect();
+        return [...grid.children].reduce((a, c) => a + c.getBoundingClientRect().width * c.getBoundingClientRect().height, 0) / (g.width * g.height);
+      });
+      if (filled < 0.92) {
+        console.log(`\n${w}x${h} duet band: ERROR empty-cell  the panels cover ${(100 * filled).toFixed(0)}% of the grid`);
+        errors++;
+      }
+      await page.locator(".duet-bar button.primary").click();
+      await check("duet band, playing", 1200);
     }
     if (!modes.length) {
       await page.close();
