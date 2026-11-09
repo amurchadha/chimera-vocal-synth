@@ -6,7 +6,7 @@
 // the beat. The working files (the heads, the snapped score) go in <out>.parts/ and are kept.
 // --3d: the heads in 3D on the duet page (show-heads.mjs: the lead large, the band beside it),
 // captured on the GPU, instead of the side view with the band in tiles (render-heads.mjs).
-// usage: bun tools/performance/beat-heads.mjs score.json out.mp4 [--snap] [--3d] [--breath 0.25] [-- render rap options]
+// usage: bun tools/performance/beat-heads.mjs score.json out.mp4 [--snap] [--3d] [--build] [--breath 0.25] [-- render rap options]
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -17,7 +17,8 @@ const own = dash < 0 ? argv : argv.slice(0, dash);
 const rapArgs = dash < 0 ? [] : argv.slice(dash + 1);
 const snap = own.includes('--snap');
 const threeD = own.includes('--3d');
-const [scorePath, outputPath] = own.filter((a, i) => a !== '--snap' && a !== '--3d' && a !== '--breath' && own[i - 1] !== '--breath');
+const build = own.includes('--build');
+const [scorePath, outputPath] = own.filter((a, i) => a !== '--snap' && a !== '--3d' && a !== '--build' && a !== '--breath' && own[i - 1] !== '--breath');
 if (!scorePath || !outputPath) throw new Error('usage: bun beat-heads.mjs score.json out.mp4 [--snap] [--3d] [-- render rap options]');
 const repo = resolve(new URL('../..', import.meta.url).pathname);
 const chimera = join(repo, 'target/release/chimera');
@@ -27,6 +28,36 @@ mkdirSync(parts, { recursive: true });
 const score = JSON.parse(readFileSync(scorePath, 'utf8'));
 const bpm = Number(score.bpm) || 120;
 const step = 60 / bpm / 4;
+// syllables in a written word (vowel groups, a silent final e dropped): enough to tell slow from fast
+const syllables = text => {
+  const t = String(text).toLowerCase().replace(/[^a-z]/g, '');
+  let n = (t.match(/[aeiouy]+/g) ?? []).length;
+  if (n > 1 && t.endsWith('e') && !/(le|ee)$/.test(t)) n--;
+  return Math.max(1, n);
+};
+if (build) {
+  // --build: the score's sections (runs of lines with one section name) slowest first, so it builds
+  // to its fastest; each keeps its own timing and starts on a half-time bar line, a bar of beat first
+  const secs = [];
+  for (const l of score.lines) {
+    if (!secs.length || secs.at(-1).name !== (l.section ?? '')) secs.push({ name: l.section ?? '', lines: [] });
+    secs.at(-1).lines.push(l);
+  }
+  const bar = 4 * 60 / (bpm / 2);
+  const ranked = secs.map((sec, i) => {
+    const ws = sec.lines.flatMap(l => l.words);
+    const a = ws[0].start, b = Math.max(...ws.map(w => w.end));
+    return { sec, i, a, b, rate: ws.reduce((n, w) => n + syllables(w.text), 0) / Math.max(0.1, b - a) };
+  }).sort((x, y) => x.rate - y.rate || x.i - y.i);
+  let at = bar;
+  for (const r of ranked) {
+    const shift = at - r.a;
+    for (const l of r.sec.lines) for (const w of l.words) { w.start = +(w.start + shift).toFixed(4); w.end = +(w.end + shift).toFixed(4); }
+    at = Math.ceil((r.b + shift + 60 / bpm) / bar) * bar;
+  }
+  score.lines = ranked.flatMap(r => r.sec.lines);
+  console.log(`built: ${ranked.length} sections slowest first (${ranked.map(r => r.rate.toFixed(1)).join(' → ')} syllables/s)`);
+}
 const words = score.lines.flatMap(l => l.words);
 // `render rap` starts a new breath group at every gap between two words: the voice stops, breathes
 // out and in again. A rapper runs on for many lines on one breath (in a fast recorded verse, a
@@ -65,14 +96,22 @@ console.log(`breaths: ${groups} (one every ${(said / groups).toFixed(1)} s); gap
 const workScore = join(parts, 'score.json');
 writeFileSync(workScore, JSON.stringify(score, null, 1));
 
-// The beat (original): a half-time groove at the score's bpm. Kick and snare accented, hats rolling
-// in 16ths of the full bpm, a low hummed bass in C minor, and a pad singing a slow line over it.
-// Each head's first hit comes late by its sequencer's lead-in; that lead-in is measured from its
-// sound and skipped (render-heads' offset), so every head lands on the score's grid.
+// The beat (original). With --build it follows the rap: every 6.5 s (two half-time bars at the score's bpm) takes
+// a level from the lead's syllables per second there: 0 no words (kick, bass, pad), 1 under 5.5
+// (backbeat, 8th hats), 2 under 8 (accents, hats rolling in 16ths of the full bpm), 3 at 8 or more
+// (doubled kick, snare fills, every hat, the bass jumping octaves). Before the first level-3 phrase
+// after a slower one the beat drops out for a bar, the pad alone. Each head's sequencer lead-in is
+// measured once from its first sound alone and skipped (render-heads' offset).
 const half = bpm / 2;
 const bar = 4 * 60 / half;                     // one half-time bar
+const unit = 2 * bar;                          // one phrase of the beat
 const end = Math.max(...words.map(w => w.end));
 const span = end + bar;                        // the beat runs a bar past the last word
+const units = Math.ceil(span / unit);
+const rateAt = k => words.filter(w => w.start >= k * unit && w.start < (k + 1) * unit).reduce((n, w) => n + syllables(w.text), 0) / unit;
+// without --build the beat is the same phrase throughout (level 2), as before
+const level = Array.from({ length: units }, (_, k) => { if (!build) return 2; const r = rateAt(k); return r === 0 ? 0 : r < 5.5 ? 1 : r < 8 ? 2 : 3; });
+const drop = level.map((l, k) => build && k + 1 < units && level[k + 1] === 3 && l < 3);
 const wavStart = path => {
   const wav = readFileSync(path);
   let at = 12;
@@ -83,25 +122,59 @@ const wavStart = path => {
   for (let k = at + 8; k + 1 < wav.length; k += 2) if (Math.abs(wav.readInt16LE(k)) > 0.25 * peak) return (k - at - 8) / 2 / rate;
   return 0;
 };
+// one phrase per level; kick, snare, bass in 16ths of the half-time bpm (32 = two bars), hats in 16ths of the full bpm (64)
+const KIT = {
+  Kick: [
+    'B> . . . | . . . . | . . . . | . . . . | B> . . . | . . . . | . . . . | . . . .',
+    'B> . . . | . . . B | . . B . | . . . . | B> . . . | . . . . | . B B . | . . . .',
+    'B> . . . | . . . B | . . B> . | . . . . | B> . . . | . . . . | . B B> . | . . . B',
+    'B> . B . | . . . B | B . B> . | . B . . | B> . B . | . . . B | B B B> . | B B B B',
+  ],
+  Snare: [
+    '. . . . | . . . . | . . . . | . . . . | . . . . | . . . . | . . . . | . . . .',
+    '. . . . | Pf . . . | . . . . | Pf . . . | . . . . | Pf . . . | . . . . | Pf . . .',
+    '. . . . | Pf> . . . | . . . . | Pf> . . . | . . . . | Pf> . . . | . . . . | Pf> . K .',
+    '. . . . | Pf> . . . | . . . . | Pf> . . K | . . . . | Pf> . . . | . . K . | Pf> K Pf> K',
+  ],
+  Hats: [
+    Array(64).fill('.').join(' '),
+    Array.from({ length: 64 }, (_, i) => (i % 4 === 0 ? 't' : '.')).join(' '),
+    't t t t | t t t t | t t tss . | t t t t | t t t t | t . t t | t t t t | tss . t t | '.repeat(2).slice(0, -3),
+    Array.from({ length: 64 }, (_, i) => (i % 8 === 4 ? 'tss>' : i % 2 === 0 ? 't>' : 't')).join(' '),
+  ],
+  Bass: [
+    'm:36 . . . | . . . . | . . . . | . . . . | m:34 . . . | . . . . | . . . . | . . . .',
+    'm:36 . . . | . . . m:36 | . . m:39 . | . . . . | m:34 . . . | . . . m:34 | . . m:36 . | m:39 . . .',
+    'm:36 . . . | . . . m:36 | . . m:39 . | . . . . | m:34 . . . | . . . m:34 | . . m:36 . | m:39 . . .',
+    'm:36 . m:36 . | m:48 . m:36 . | m:39 . m:39 . | m:51 . m:39 . | m:34 . m:34 . | m:46 . m:34 . | m:36 . m:36 . | m:39 . m:43 .',
+  ],
+};
+const rests = n => Array(n).fill('.');
 const beatHeads = [
-  { label: 'Kick', bpm: half, gain: 1.0, pattern: 'B> . . . | . . . B | . . B> . | . . . . | B> . . . | . . . . | . B B> . | . . . B' },
-  { label: 'Snare', bpm: half, gain: 0.9, pattern: '. . . . | Pf> . . . | . . . . | Pf> . . . | . . . . | Pf> . . . | . . . . | Pf> . K .' },
-  { label: 'Hats', bpm, gain: 0.42, pattern: 't t t t | t t t t | t t tss . | t t t t | t t t t | t . t t | t t t t | tss . t t' },
-  { label: 'Bass', bpm: half, gain: 0.85, pattern: 'm:36 . . . | . . . m:36 | . . m:39 . | . . . . | m:34 . . . | . . . m:34 | . . m:36 . | m:39 . . .' },
+  { label: 'Kick', bpm: half, gain: 1.0 },
+  { label: 'Snare', bpm: half, gain: 0.9 },
+  { label: 'Hats', bpm, gain: 0.42 },
+  { label: 'Bass', bpm: half, gain: 0.85 },
 ];
 const heads = [];
+const leadIns = [];
 for (const h of beatHeads) {
   const dir = join(parts, h.label.toLowerCase());
   const tele = dir + '.tele';
-  const steps = h.pattern.split(/[\s|]+/).filter(Boolean);
-  const stepDur = 60 / h.bpm / 4;
-  const repeats = Math.ceil(span / (steps.length * stepDur));
-  const r = spawnSync(chimera, ['render', 'beatbox', dir, h.pattern, 'male', String(h.bpm), String(repeats), '--tele', tele], { stdio: ['ignore', 'ignore', 'inherit'] });
+  const phrases = KIT[h.label].map(p => p.split(/[\s|]+/).filter(Boolean));
+  const steps = level.flatMap((l, k) => {
+    const p = phrases[l];
+    return drop[k] ? [...p.slice(0, p.length / 2), ...rests(p.length / 2)] : p;
+  });
+  // the lead-in: its first sound alone, from silence
+  const first = steps.find(x => x !== '.' && x !== '-') ?? phrases.flat().find(x => x !== '.');
+  const probe = join(parts, h.label.toLowerCase() + '-leadin');
+  if (spawnSync(chimera, ['render', 'beatbox', probe, `${first} . . .`, 'male', String(h.bpm), '1'], { stdio: 'ignore' }).status !== 0) throw new Error(`the ${h.label} lead-in probe failed`);
+  const offset = Math.max(0, wavStart(join(probe, 'pattern.wav')));
+  const r = spawnSync(chimera, ['render', 'beatbox', dir, steps.join(' '), 'male', String(h.bpm), '1', '--tele', tele], { stdio: ['ignore', 'ignore', 'inherit'] });
   if (r.status !== 0) throw new Error(`the ${h.label} head failed to render`);
-  const wav = join(dir, 'pattern.wav');
-  const firstHit = steps.findIndex(x => x !== '.' && x !== '-') * stepDur;
-  const offset = Math.max(0, wavStart(wav) - firstHit);
-  heads.push('--head', `${h.label}:${tele}:${wav}:${h.gain}:${offset.toFixed(4)}`);
+  leadIns.push(offset);
+  heads.push('--head', `${h.label}:${tele}:${join(dir, 'pattern.wav')}:${h.gain}:${offset.toFixed(4)}`);
 }
 // the pad: one sung note a bar (Eb4 D4 C4 Bb3 over the bass's C and Bb), repeated past the end
 {
@@ -114,9 +187,10 @@ for (const h of beatHeads) {
   const r = spawnSync(chimera, ['render', 'notes', melody, stem, 'female', '--tele', stem + '.tele'], { stdio: ['ignore', 'ignore', 'inherit'] });
   if (r.status !== 0) throw new Error('the pad head failed to render');
   const offset = wavStart(stem + '.wav');
+  leadIns.push(offset);
   heads.push('--head', `Pad:${stem}.tele:${stem}.wav:0.45:${offset.toFixed(4)}`);
 }
-console.log(`beat: ${half} BPM half-time over ${span.toFixed(1)} s, five heads (lead-ins skipped: ${heads.filter((_, i) => i % 2).map(h => h.split(':').at(-1)).join(', ')} s)`);
+console.log(`beat: ${half} BPM half-time over ${span.toFixed(1)} s; levels per 6.5 s: ${level.map((l, k) => (drop[k] ? l + 'v' : l)).join(' ')} (v = drop); lead-ins skipped: ${leadIns.map(x => x.toFixed(3)).join(', ')} s`);
 
 const tool = threeD ? 'tools/performance/show-heads.mjs' : 'tools/performance/render-heads.mjs';
 const r = spawnSync(process.execPath, [join(repo, tool), workScore, resolve(outputPath), ...heads, '--', ...rapArgs], { stdio: 'inherit' });
