@@ -230,6 +230,22 @@ mod tests {
     }
 
     #[test]
+    fn talking_fast_shortens_a_voiceless_fricatives_glottal_opening() {
+        // "sass" in 0.12 s (double-time rap: every segment under its Klatt minimum): with --speedup 2 the
+        // folds' opening for /s/ ramps faster than at talking speed, so the vowel keeps its voicing
+        use crate::phonetics::planner::{PlanOptions, plan_utterance};
+        let group = fit_rap_group(&[word("sæs", 0.3, 0.42)], BodyMix::default(), RapTiming::Even);
+        let ramps = |speedup: Option<f64>| -> Vec<f64> {
+            let plan = plan_utterance(&group.segments, &PlanOptions { t0: group.t0, speedup, ..Default::default() });
+            plan.gestures.iter().filter(|g| g.label_str() == "voiceless").map(|g| g.ramp_in).collect()
+        };
+        let (slow, fast) = (ramps(None), ramps(Some(2.0)));
+        assert_eq!(slow.len(), 2);
+        assert!(slow.iter().all(|r| (r - 0.03).abs() < 1e-9), "{slow:?}");
+        assert!(fast.iter().all(|r| *r < 0.03 * 0.8), "{fast:?}");
+    }
+
+    #[test]
     fn fast_words_are_reduced_and_slow_ones_kept() {
         crate::phonetics::planner::init();
         let b = BodyMix::default();

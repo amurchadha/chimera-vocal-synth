@@ -374,10 +374,15 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
         }
         // phonation
         let k2 = 1.0; // abduction is body-scaled in the voice
+        // fast talking shrinks the glottal opening with the consonant and its neighbours (Munhall &
+        // Löfqvist 1992: the abduction gesture shortens with rate). Its fixed lead and 30 ms ramps
+        // part the folds ~35 ms before a voiceless fricative and ~25 ms after it at any rate, so at
+        // rap speed the vowels either side lose half their voicing. 1 unless talking fast.
+        let gq = js_max(js_max(fast, if i + 1 < segs.len() { boost(i + 1) } else { 1.0 }), if i > 0 { boost(i - 1) } else { 1.0 });
         if def.glottal == Some(Glottal::Open) {
             // the folds close 10 ms before the span's end: with the lungs' port fixed, /h/ is 4-5 dB louder and MFA
             // reads it about that much longer than the speakers' (hill-climb log, experiment 32)
-            gestures.push(Gesture::new(t0 - 0.01, t1 - 0.01, 0.03, 0.035, 5.0, one(ControlKey::ABDUCTION, 0.33 * k2)).label("h"));
+            gestures.push(Gesture::new(t0 - 0.01 / gq, t1 - 0.01, 0.03 / gq, 0.035 / gq, 5.0, one(ControlKey::ABDUCTION, 0.33 * k2)).label("h"));
         } else if def.glottal == Some(Glottal::Breathy) {
             gestures.push(Gesture::new(t0, t1, 0.03, 0.03, 5.0, one(ControlKey::ABDUCTION, 0.1 * k2)).label("ɦ"));
         } else if def.glottal == Some(Glottal::Stop) {
@@ -395,9 +400,9 @@ pub fn plan_utterance(input: &[Segment], o: &PlanOptions) -> Plan {
                 // a fixed 50 ms VOT and 45 ms release would leave a 40 ms rap vowel all breath
                 let squeeze = js_max(fast, if i + 1 < segs.len() { boost(i + 1) } else { 1.0 });
                 let vot = if aspirated { 0.05 / rate / squeeze } else { 0.012 };
-                gestures.push(Gesture::new(t0 + 0.25 * dur, t1 + vot * 0.4, 0.035, if aspirated { 0.045 / squeeze } else { 0.02 }, 6.0, one(ControlKey::ABDUCTION, if aspirated { 0.36 } else { 0.22 })).label("aspiration"));
+                gestures.push(Gesture::new(t0 + 0.25 * dur, t1 + vot * 0.4, 0.035 / gq, if aspirated { 0.045 / squeeze } else { 0.02 / gq }, 6.0, one(ControlKey::ABDUCTION, if aspirated { 0.36 } else { 0.22 })).label("aspiration"));
             } else {
-                gestures.push(Gesture::new(t0 - 0.015, t1 + 0.005, 0.03, 0.03, 6.0, one(ControlKey::ABDUCTION, 0.3)).label("voiceless"));
+                gestures.push(Gesture::new(t0 - 0.015 / gq, t1 + 0.005 / gq, 0.03 / gq, 0.03 / gq, 6.0, one(ControlKey::ABDUCTION, 0.3)).label("voiceless"));
             }
         } else if def.ipa == "ð" && def.manner == Manner::Stop {
             // apart behind the closure, so it is silent and the voice follows the release by 15-20 ms

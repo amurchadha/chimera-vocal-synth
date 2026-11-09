@@ -3959,3 +3959,23 @@ is private: no lyrics, audio or derived files in git; numbers and line numbers o
 - Verdict: reverted (no gain past the noise).
 - Next: the crowded words need fewer sounds, not a different split: more of the reductions
   fast talkers make (`reduce_fast_keeping`), checked word class by word class.
+
+### 42. Experiment 29 re-judged on the whole song: voiceless consonants' glottal opening shrinks with rate (kept)
+
+- Hypothesis (29's, Munhall & Löfqvist 1992): the folds' opening for a voiceless consonant has
+  a fixed lead and 30 ms ramps at any rate, so at rap speed it takes the voicing of half the
+  vowel either side. 29 moved the rate judge 4.3 points the right way, under its 5-point rule;
+  40 showed that judge reading 2–3 points where the whole song reads 10.
+- Change: 29's, ported to today's planner (`planner.rs`): `gq`, the largest boost of the
+  consonant and its neighbours, divides the /h/ gesture's lead and ramps, a voiceless stop's
+  aspiration ramp-in (and an unaspirated one's ramp-out) and a voiceless fricative's lead, lag
+  and ramps. The affricate's folds (newer than 29) are left alone. 1 unless talking fast
+  (`--speedup` and segments under their Klatt minimum), so speech and singing don't change.
+- Judge (as 40, against 40): words heard 53.7 → **56.1 %**: double time **44 → 57** (its noise
+  ~5), hook 54 → 55, verse 58 → 56 (noise).
+- Guards: `bun run test` 35 cargo suites ok (goldens unchanged: speech and singing render as
+  before), 78 bun pass. TSP and the singer not run: they don't set `--speedup`, so boost is 1
+  and `gq` is 1 (the goldens confirm the speech is unchanged).
+- Test: `talking_fast_shortens_a_voiceless_fricatives_glottal_opening` (phonetics/rap.rs):
+  ramps 30 ms at talking speed, under 24 with `--speedup 2` in a 0.12 s word; fails without the
+  change.
