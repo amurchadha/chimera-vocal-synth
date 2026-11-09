@@ -6,7 +6,7 @@
 // the beat. The working files (the heads, the snapped score) go in <out>.parts/ and are kept.
 // --3d: the heads in 3D on the duet page (show-heads.mjs: the lead large, the band beside it),
 // captured on the GPU, instead of the side view with the band in tiles (render-heads.mjs).
-// usage: bun tools/performance/beat-heads.mjs score.json out.mp4 [--snap] [--3d] [-- render rap options]
+// usage: bun tools/performance/beat-heads.mjs score.json out.mp4 [--snap] [--3d] [--breath 0.25] [-- render rap options]
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -17,7 +17,7 @@ const own = dash < 0 ? argv : argv.slice(0, dash);
 const rapArgs = dash < 0 ? [] : argv.slice(dash + 1);
 const snap = own.includes('--snap');
 const threeD = own.includes('--3d');
-const [scorePath, outputPath] = own.filter(a => a !== '--snap' && a !== '--3d');
+const [scorePath, outputPath] = own.filter((a, i) => a !== '--snap' && a !== '--3d' && a !== '--breath' && own[i - 1] !== '--breath');
 if (!scorePath || !outputPath) throw new Error('usage: bun beat-heads.mjs score.json out.mp4 [--snap] [--3d] [-- render rap options]');
 const repo = resolve(new URL('../..', import.meta.url).pathname);
 const chimera = join(repo, 'target/release/chimera');
@@ -28,6 +28,13 @@ const score = JSON.parse(readFileSync(scorePath, 'utf8'));
 const bpm = Number(score.bpm) || 120;
 const step = 60 / bpm / 4;
 const words = score.lines.flatMap(l => l.words);
+// `render rap` starts a new breath group at every gap between two words: the voice stops, breathes
+// out and in again. A rapper runs on for many lines on one breath (in a fast recorded verse, a
+// silence over 0.25 s comes about every 4.6 s, ~20 words), so only a real pause in the score, over
+// --breath seconds, stays a gap; every other word runs on into the next.
+const breathAt = own.indexOf('--breath');
+const breath = breathAt >= 0 ? Number(own[breathAt + 1]) : 0.25;
+const pauseAfter = words.map((w, i) => i + 1 < words.length && words[i + 1].start - w.end > breath);
 
 if (snap) {
   // the grid offset that puts the starts closest to it, judged on the circle of one step
@@ -51,6 +58,10 @@ if (snap) {
   });
   console.log(`snapped ${words.length} words to the ${bpm} BPM 16th grid (moved by ${shift.toFixed(3)} s, then rounded)`);
 }
+words.forEach((w, i) => { if (i + 1 < words.length && !pauseAfter[i]) w.end = words[i + 1].start; });
+const groups = 1 + pauseAfter.filter(Boolean).length;
+const said = Math.max(...words.map(w => w.end)) - Math.min(...words.map(w => w.start));
+console.log(`breaths: ${groups} (one every ${(said / groups).toFixed(1)} s); gaps under ${breath} s run on`);
 const workScore = join(parts, 'score.json');
 writeFileSync(workScore, JSON.stringify(score, null, 1));
 
