@@ -2409,3 +2409,67 @@ time allows. Item 1 is the largest class, but its terms are TSP diagnostics: a l
   voiced stop before the fricative keeps its voicing through the closure; judge it, then Whisper
   on the TSP-BETTER candidate. If /g/ still breaks, start it at t0 + the 30 ms ramp's half. Watch
   female level z (now 5 dB under the women) and spectrum ð/v (the noise is now there to measure).
+
+## Rap God Mode: spoken forms (2026-11-09)
+
+Branch `rapgod/spoken`, on `hill/batch4-base` (5dfb7ca); code f926822, e3ce8ef, a32fa11. The song
+is private: no lyrics, audio or derived files in git; numbers and line numbers only here.
+
+- Hypothesis: the voice says every word in CMUdict's careful form; a fast rapper says "-ing" as
+  [ɪn], function words weak, final /t d/ of clusters dropped. General casual-speech forms in the
+  engine, with a recording only *choosing* among them per word, should sound more like the
+  performance without copying it (its timing and pitch stay out).
+- Change: `phonetics::spoken::variants(line, i)` lists a word's dictionary form plus what general
+  rules allow in its line, each form named by its rules: `in` ("running" ɹʌnɪn), `td` (final /t d/
+  after a consonant other than /ɹ t d/, not before a vowel, never "-n't": "kept" kɛp, "fast"
+  fæs), `h` (/h/ of a function word inside a line: "ask him" æsk ɪm), `syn` (syncope in words of
+  three or more syllables: "family" fæmli, "camera" kæmɹə), `gem` (a final consonant the next word
+  starts with, said once: "red door" ɹɛ dɔɹ), `pal` (/t d s z/ + /j/: "met you" mɛtʃ u), `fuse`
+  (going/want/got/have/has to, let/give me: "going to" gʌn ə), `weak`/`weak2` (Gimson's weak
+  forms). Rules stack ("weak+pal"); at most ten forms a word. `chimera rap spoken` exports the forms
+  in ARPAbet; `render rap --spoken choice.json` says each chosen word in its form, and `--reduce`
+  leaves those words alone. Off by default: without it renders are byte-identical to 5dfb7ca's.
+- The choice (`tools/rap/spoken_align.py`): MFA 3.4.3 (english_us_arpa, tools/tsp/mfa.yaml) on the
+  Demucs vocal, cut at the score's line gaps, every word its own dictionary entry holding exactly
+  its forms; writes `{word index: form id}` (no text) to /Volumes/hd/tmp/rapgod/mode/
+  spoken-choice.json. A word MFA puts > 0.3 s from the score's time is left out.
+  - The battle score (theirs.json, 347 words): 21 chunks, none failed; **314 aligned**, 33 left out
+    (hook lines 2, 9–11 and line 41: the recognizer-timed stretches); 96 words have a variant, **43
+    of the 88 aligned ones took one**: weak 26/56, weak2 8/18, td 3/9, pal 3/8, in 2/12, gem 2/6,
+    syn 1/4, fuse 1/1 (chosen/offered). 17 words sit at MFA's floor (every phone 30 ms).
+  - The big set's m1–m5 (551 words): 550 aligned, 82 of 125 with a variant took one. All seven big
+    sections: **121 of 832 words change (14.5 %)**.
+  - Fires suspiciously often? Decoys (forms nobody says, offered beside the real ones, theirs +
+    m1–m5): a word without its first consonant taken 36/460 (8 %), without a last consonant no rule
+    drops 43/319 (13 %); the rules on the same run td 18/30, weak 60/115, in 12/23, pal 8/16, syn
+    4/9, gem 6/16, weak2 14/45, h 4/6, fuse 2/2 (pooled 128/262, 49 %): about 4× the floor, so the
+    choice carries signal; `weak` near 50 % of function words is the one to watch. A control (our
+    own dictionary-only render aligned the same way) took variants as often (38/73, 50 words at the
+    floor), so it can't separate MFA's bias from the synth's own slurring.
+- Step 3 (the record's phone durations inside each word, `--spoken-durs`) was built in f926822 and
+  removed in e3ce8ef unjudged: copying a recording's timing or pitch into our voice clones it.
+- Big set (`--timing klatt --speedup 2`): only dt was judged with `--spoken` before song renders
+  were stopped: **106.8 %** over 83 words; the same section without the flag (audio byte-identical
+  to e28's) 118.5 % and, judged again today, 120.9 %. One section, a judge that is past 100 % and
+  moves 2.4 points on identical audio: no verdict. The other six sections were not judged.
+- No song renders kept: the whole-song renders and the ten round-1 A/B clips made earlier are in
+  /Volumes/hd/tmp/aside-10-31/rapgod-spoken-song-renders/. Aaron renders the song himself with
+  /Volumes/hd/tmp/rapgod/mode/rapgod-mode.sh `<binary> <out.wav>` (`--speedup 2 --lively --reduce
+  --spoken spoken-choice.json`; checked with `zsh -n` and on a non-song score only). Binaries:
+  /Volumes/hd/tmp/chimera-bins/spoken (this branch) and chimera-bins/spoken-pr41 (rapgod/engine
+  9f87f68 + this branch's diff, which applies cleanly; without the flag byte-identical to
+  chimera-bins/pr41).
+- Demo on my own sentences (6 lines, 66 words, `rap score` at 135 bpm × 4 = 9 syllables/s, no song
+  words): /Volumes/hd/tmp/rapgod/mode/demo-plain.wav (battle settings: `--reduce` made 23
+  reductions) and demo-spoken.wav (+ `--spoken`, every word with a variant takes its form with the
+  most rules: 26 of 66 words changed, all nine rules used; `--reduce` then makes none).
+- Tests: `cargo test --workspace --no-fail-fast` 116 pass, 5 fail: the TypeScript-golden tests
+  (phrases, utterances, voice, beatbox bar ×2), which fail identically at 5dfb7ca. `bun test tests`
+  29 pass, 1 skip (wasm built with the separate target dir and copied; `bun run wasm` assumes
+  ./target); `bun run typecheck` clean.
+- Verdict: no ear judgment, no recognizer verdict. The flag and the choice are ready.
+- Next: Aaron listens to rapgod-mode.sh's render against the same without `--spoken`; if no
+  difference, the forms aren't where the song is lost (cc09d7d found the same for `--reduce`). A
+  pronunciation prior for the dictionary form (MFA's `word\tprob\tphones`) could lower the ~10 %
+  floor; judge it with the decoys. The hook's timing (41 of 66 words recognizer-timed) keeps 26
+  of its words out of the choice.
