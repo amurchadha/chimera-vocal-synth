@@ -13,10 +13,18 @@
  * Optional: `bpm` and `downbeat` (s, a bar's first beat) nod the heads on the beat; a voice's
  * `melody` (the melody file it was rendered from) writes its words at its mouth, and the show's
  * `spell` ({"owr": "our"}) writes a syllable spelled for the dictionary as it should read.
+ *
+ * A voice can be an instrument instead of a head, its data a .json in `tele`:
+ *   { "name": "808", "tele": "808.json", "kind": "808" }    the modeled 808's track (tools/performance/808.mjs)
+ *   { "name": "Drums", "tele": "kit.json", "kind": "kit" }  a drum kit's hit list (src/show/kit.ts):
+ *       { "hits": [{ "t": 0.0, "part": "kick", "accent": true }, { "t": 0.4, "part": "snare" }, …] },
+ *       part one of kick, snare, ghost, hats, open, crash
+ * Both are drawn as wireframes in 3D and share one WebGL context (render/wire3d.ts); each head has its own.
  */
 import { useEffect, useRef, useState } from "react";
 import { AnatomyView3D, type HeadFeed } from "./AnatomyView3D.tsx";
 import { Instrument808, type Track808 } from "./Instrument808.tsx";
+import { DrumKit3D, type KitTrack } from "./DrumKit3D.tsx";
 import { Screen } from "./Screen.tsx";
 import { TeleTrack } from "../../show/tele.ts";
 import { Transport } from "../../show/transport.ts";
@@ -41,13 +49,19 @@ interface ShowFile {
   layout?: "row" | "lead";
   /** words: timed words (`[{"text","start","end"}]`) for a voice not sung from a melody;
    *  offset: seconds of the voice's own recording to skip, so a late first hit lands on the show's time */
-  /*  kind "808": not a head but the modeled 808 (tools/performance/808.mjs), its track in `tele` (the .json) */
-  voices: { name: string; tele: string; kind?: "808"; melody?: string; words?: string; offset?: number }[];
+  /*  kind "808": not a head but the modeled 808 (tools/performance/808.mjs), its track in `tele` (the .json);
+   *  kind "kit": a drum kit, its hit list in `tele` (the .json, see src/show/kit.ts) */
+  voices: { name: string; tele: string; kind?: "808" | "kit"; melody?: string; words?: string; offset?: number }[];
 }
+
+type LoadedVoice =
+  | { name: string; offset: number; track: TeleTrack; words: SungWords | null; drum?: undefined; kit?: undefined }
+  | { name: string; offset: number; drum: Track808; track?: undefined; kit?: undefined }
+  | { name: string; offset: number; kit: KitTrack; track?: undefined; drum?: undefined };
 
 interface Loaded {
   show: ShowFile;
-  voices: ({ name: string; track: TeleTrack; words: SungWords | null; offset: number; drum?: undefined } | { name: string; drum: Track808; offset: number; track?: undefined; words?: undefined })[];
+  voices: LoadedVoice[];
 }
 
 /** the heads as the face screen shows them by default, less the measurement labels */
@@ -84,7 +98,7 @@ export function DuetPage(props: { id: string }) {
     (async () => {
       const show = (await (await fetchOk(base + "show.json")).json()) as ShowFile;
       if (!show.voices?.length || !show.audio) throw new Error("show.json needs audio and voices");
-      const [audio, ...teles] = await Promise.all([fetchOk(base + show.audio).then((r) => r.arrayBuffer()), ...show.voices.map((v) => fetchOk(base + v.tele).then((r) => (v.kind === "808" ? r.json() : r.arrayBuffer())))]);
+      const [audio, ...teles] = await Promise.all([fetchOk(base + show.audio).then((r) => r.arrayBuffer()), ...show.voices.map((v) => fetchOk(base + v.tele).then((r) => (v.kind === "808" || v.kind === "kit" ? r.json() : r.arrayBuffer())))]);
       // the words: syllables as the CLI splits them (the pronouncing dictionary first, as it does)
       const melodies = await Promise.all(show.voices.map((v) => (v.melody ? fetchOk(base + v.melody).then((r) => r.json() as Promise<Melody>) : null)));
       if (melodies.some(Boolean)) await g2p.load().catch(() => {});
@@ -100,9 +114,16 @@ export function DuetPage(props: { id: string }) {
           return null;
         }
       });
-      const voices: Loaded["voices"] = show.voices.map((v, i) =>
-        v.kind === "808" ? { name: v.name, drum: teles[i] as Track808, offset: v.offset ?? 0 } : { name: v.name, track: new TeleTrack(teles[i] as ArrayBuffer), words: words[i], offset: v.offset ?? 0 },
-      );
+      const voices: LoadedVoice[] = show.voices.map((v, i) => {
+        const offset = v.offset ?? 0;
+        if (v.kind === "808") return { name: v.name, drum: teles[i] as Track808, offset };
+        if (v.kind === "kit") {
+          const kit = teles[i] as KitTrack;
+          if (!Array.isArray(kit?.hits)) throw new Error(`${v.tele}: a kit needs "hits"`);
+          return { name: v.name, kit, offset };
+        }
+        return { name: v.name, track: new TeleTrack(teles[i] as ArrayBuffer), words: words[i], offset };
+      });
       await transport.load(audio);
       if (live) setLoaded({ show, voices });
     })().catch((e: unknown) => live && setError(e instanceof Error ? e.message : String(e)));
@@ -140,7 +161,19 @@ export function DuetPage(props: { id: string }) {
         <span className="duet-title">{title}</span>
       </header>
       <main className={lead ? "duet-heads lead" : "duet-heads"} style={{ "--voices": loaded?.voices.length ?? 2, "--band": Math.min(4, Math.max(1, Math.ceil(((loaded?.voices.length ?? 2) - 1) / 2))) } as React.CSSProperties}>
-        {loaded && transport ? loaded.voices.map((v, i) => (v.drum ? <Instrument808 key={i} name={v.name} track={v.drum} offset={v.offset} time={() => transport.time()} /> : <Head key={i} name={v.name} track={v.track} words={v.words} offset={v.offset} show={loaded.show} transport={transport} facing={facing(i, loaded.voices.length)} />)) : <p className="duet-msg">Loading the song…</p>}
+        {loaded && transport ? (
+          loaded.voices.map((v, i) =>
+            v.kit ? (
+              <DrumKit3D key={i} name={v.name} kit={v.kit} offset={v.offset} time={() => transport.time()} />
+            ) : v.drum ? (
+              <Instrument808 key={i} name={v.name} track={v.drum} offset={v.offset} time={() => transport.time()} />
+            ) : (
+              <Head key={i} name={v.name} track={v.track} words={v.words} offset={v.offset} show={loaded.show} transport={transport} facing={facing(i, loaded.voices.length)} />
+            ),
+          )
+        ) : (
+          <p className="duet-msg">Loading the song…</p>
+        )}
       </main>
       <footer className="duet-bar">
         <button className="primary large" disabled={!loaded} onClick={() => (st.playing ? transport?.pause() : transport?.play())}>
