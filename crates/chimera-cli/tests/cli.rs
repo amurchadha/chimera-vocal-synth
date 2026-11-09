@@ -428,3 +428,36 @@ fn render_notes_tele_records_the_live_telemetry_without_changing_the_sound() {
     let a_lip = artic["frames"][96][lip].as_f64().unwrap(); // 0.96 s = 60 tele hops
     assert!((at(60, 11 + lip) as f64 - a_lip).abs() < 1e-3, "lipAp {} vs {a_lip}", at(60, 11 + lip));
 }
+
+#[test]
+fn render_rap_spoken_says_the_chosen_forms_and_nothing_else_changes() {
+    // a test score of ordinary words: "dogs running and jump"
+    let score = tmp("spoken-score.json");
+    let words = [("dogs", 0.5, 0.7), ("running", 0.7, 1.0), ("and", 1.0, 1.1), ("jump", 1.1, 1.4)];
+    let ws: Vec<serde_json::Value> = words.iter().map(|(t, s, e)| serde_json::json!({ "text": t, "start": s, "end": e, "hz": 110 })).collect();
+    std::fs::write(&score, serde_json::json!({ "lines": [{ "words": ws }] }).to_string()).unwrap();
+    let forms_path = tmp("spoken-forms.json");
+    chimera(&["rap", "spoken", &score, &forms_path]);
+    let forms: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&forms_path).unwrap()).unwrap();
+    let ids = |i: usize| -> Vec<String> { forms["tokens"][i]["forms"].as_array().unwrap().iter().map(|f| f["id"].as_str().unwrap().to_string()).collect() };
+    assert_eq!(ids(0), ["dict"]);
+    assert!(ids(1).contains(&"in".to_string()), "{:?}", ids(1));
+    assert_eq!(forms["tokens"][1]["forms"][0]["arpa"], "R AH1 N IH0 NG");
+    // the aligner chose -in' for "running" and the dictionary's "and"
+    let choice = tmp("spoken-choice.json");
+    std::fs::write(&choice, serde_json::json!({ "rules": "spoken-1", "words": 4, "choice": { "1": "in", "2": "dict" } }).to_string()).unwrap();
+    let plain = chimera(&["render", "rap", &tmp("spoken-plain"), &score, "male", "--timing", "klatt", "--dump"]);
+    let said = chimera(&["render", "rap", &tmp("spoken-said"), &score, "male", "--timing", "klatt", "--dump", "--spoken", &choice]);
+    let segs = |dump: &str| -> Vec<String> {
+        dump.lines().filter(|l| l.starts_with("t0 ")).flat_map(|l| l.split_whitespace().skip(2).map(|s| s.rsplit_once(':').unwrap().0.to_string()).collect::<Vec<_>>()).collect()
+    };
+    let (p, s) = (segs(&plain), segs(&said));
+    assert!(p.contains(&"ŋ|".to_string()) && !s.contains(&"ŋ|".to_string()) && s.contains(&"n|".to_string()), "{p:?} vs {s:?}");
+    assert_eq!(p.len(), s.len());
+    assert_eq!(p.iter().zip(&s).filter(|(a, b)| a != b).count(), 1, "only the chosen sound changes");
+    assert!(said.contains("spoken forms: 2 of 4 words chosen, 1 said otherwise"), "{said}");
+    // a choice made for another score is refused
+    std::fs::write(&choice, serde_json::json!({ "rules": "spoken-1", "words": 5, "choice": {} }).to_string()).unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_chimera")).args(["render", "rap", &tmp("spoken-bad"), &score, "male", "--spoken", &choice]).output().unwrap();
+    assert!(!out.status.success());
+}

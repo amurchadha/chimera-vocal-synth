@@ -26,9 +26,13 @@ usage: chimera <command> [args] [--float]
   render creature [creatureId] [outdir]
   render vowels  [male|female|child] [out]
   render rap     <out> <score.json> [male|female|child] [--timing even|klatt] [--speedup x]
-                 [--base-hz hz] [--tele voice.tele] [--lively] [--reduce] [--dump]  (timed words as tools/performance takes them; klatt puts
-                 vowel onsets on the beats; --speedup moves articulators up to x faster in short sounds)
+                 [--base-hz hz] [--tele voice.tele] [--lively] [--reduce] [--spoken choice.json]
+                 [--spoken-durs durs.json] [--dump]  (timed words as tools/performance takes them; klatt puts
+                 vowel onsets on the beats; --speedup moves articulators up to x faster in short sounds; --spoken
+                 says each word in the casual form a recording chose, tools/rap/spoken_align.py; --spoken-durs
+                 times its sounds as the recording did)
   rap score      <out.json> [bpm] [syllables per beat] [hz] [\"line / line\"]  (a test score on a grid)
+  rap spoken     <score.json> <out.json>  (every word's dictionary and casual forms in ARPAbet, for an aligner)
   diagnose       [outdir]
   compare csd    [csd-dir] [outdir] [--songs a|b|all|en001a,…] [--body female] [--jobs n]
                  [--against earlier/score.json]  (score.json: distance to the singer, and the verdict)
@@ -116,6 +120,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
             }
         }
         ["rap", "score", ..] => rap::score(&args[2..]),
+        ["rap", "spoken", ..] => rap::spoken_forms(&args[2..]),
         ["compare", "csd", ..] => compare::csd(&ctx, &args[2..]),
         ["compare", "tsp", ..] => compare::tsp::run(&ctx, &args[2..]),
         ["diagnose", ..] => diagnose::run(&ctx, &args[1..]),
