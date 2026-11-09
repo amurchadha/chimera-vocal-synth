@@ -6,7 +6,7 @@
 // the beat. The working files (the heads, the snapped score) go in <out>.parts/ and are kept.
 // --3d: the heads in 3D on the duet page (show-heads.mjs: the lead large, the band beside it),
 // captured on the GPU, instead of the side view with the band in tiles (render-heads.mjs).
-// usage: bun tools/performance/beat-heads.mjs score.json out.mp4 [--snap] [--3d] [--build] [--breath 0.25] [--beat <onlinesequencer link | notes.json>] [--song-words words.json] [--riff pluck|lead] [--plan] [--audio-only] [-- render rap options]
+// usage: bun tools/performance/beat-heads.mjs score.json out.mp4 [--snap] [--3d] [--build] [--breath 0.25] [--beat <onlinesequencer link | notes.json>] [--song-words words.json] [--riff pluck|lead] [--drive 808-drive] [--chords choir|synth] [--plan] [--audio-only] [-- render rap options]
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -33,11 +33,18 @@ const build = own.includes('--build');
 const audioOnly = own.includes('--audio-only');
 const riffAt = own.indexOf('--riff');
 const riffPreset = riffAt >= 0 ? own[riffAt + 1] : 'pluck';
+const driveAt = own.indexOf('--drive');
+// 7: the song's 808 has overtones (4.6% of its energy at 100-200 Hz, measured); at 1.5 ours had 0.3%,
+// nearly all under 100 Hz, which a phone speaker doesn't play
+const drive808 = driveAt >= 0 ? Number(own[driveAt + 1]) : 7;
+// --chords synth: a song's chords on the synth (as the song plays them) instead of the choir heads
+const chordsAt = own.indexOf('--chords');
+const chordsOn = chordsAt >= 0 ? own[chordsAt + 1] : 'choir';
 const beatAt = own.indexOf('--beat');
 const beatSource = beatAt >= 0 ? own[beatAt + 1] : null;
 const songWordsAt = own.indexOf('--song-words');
 const songWords = songWordsAt >= 0 ? JSON.parse(readFileSync(own[songWordsAt + 1], 'utf8')) : null;
-const [scorePath, outputPath] = own.filter((a, i) => a !== '--snap' && a !== '--plan' && a !== '--audio-only' && a !== '--riff' && own[i - 1] !== '--riff' && a !== '--3d' && a !== '--build' && a !== '--breath' && own[i - 1] !== '--breath' && a !== '--beat' && own[i - 1] !== '--beat' && a !== '--song-words' && own[i - 1] !== '--song-words');
+const [scorePath, outputPath] = own.filter((a, i) => a !== '--snap' && a !== '--plan' && a !== '--audio-only' && a !== '--riff' && own[i - 1] !== '--riff' && a !== '--drive' && own[i - 1] !== '--drive' && a !== '--chords' && own[i - 1] !== '--chords' && a !== '--3d' && a !== '--build' && a !== '--breath' && own[i - 1] !== '--breath' && a !== '--beat' && own[i - 1] !== '--beat' && a !== '--song-words' && own[i - 1] !== '--song-words');
 if (!scorePath || !outputPath) throw new Error('usage: bun beat-heads.mjs score.json out.mp4 [--snap] [--3d] [-- render rap options]');
 const repo = resolve(new URL('../..', import.meta.url).pathname);
 const chimera = join(repo, 'target/release/chimera');
@@ -247,11 +254,17 @@ for (const h of beatHeads) {
   });
   if (h.label === '808') {
     // the modeled 808 (808.mjs): no sequencer, its first hit at exactly 0, a track for its panel
-    const { samples, track } = seqParts ? render808(seqParts.bass, bpm, { decay: 0.7, drive: 1.5 }) : render808(steps.join(' '), h.bpm, { decay: 0.9, drive: 1.5 });
+    const { samples, track } = seqParts ? render808(seqParts.bass, bpm, { decay: 0.7, drive: drive808 }) : render808(steps.join(' '), h.bpm, { decay: 0.9, drive: 1.5 });
     writeWav(dir + '.wav', samples);
     writeFileSync(dir + '.json', JSON.stringify(track));
     leadIns.push(0);
-    heads.push('--head', `${h.label}:${dir}.json:${dir}.wav:${h.gain}:0`);
+    // the mix levels each part by its peak, so a harder-driven 808 (denser, same peak) comes out
+    // louder: hold its loudness at the drive-1.5 808's (rms/peak 0.357, measured), whatever the drive
+    let pk = 0, ss = 0;
+    for (const v of samples) { pk = Math.max(pk, Math.abs(v)); ss += v * v; }
+    const density = Math.sqrt(ss / Math.max(1, samples.length)) / Math.max(1e-9, pk);
+    const gain808 = +(h.gain * Math.min(1, 0.29 / Math.max(1e-6, density))).toFixed(3);
+    heads.push('--head', `${h.label}:${dir}.json:${dir}.wav:${gain808}:0`);
     continue;
   }
   // the lead-in: its first sound alone, from silence
@@ -272,6 +285,7 @@ const CHOIR = [
   { label: 'Soprano', body: 'child', notes: [63, 62, 63, 62], gain: 0.34 },
 ];
 CHOIR.forEach((v, i) => {
+  if (seqParts && chordsOn === 'synth') return;
   const count = Math.ceil(span / bar);
   const notes = seqParts ? seqParts.melodies[i] : Array.from({ length: count }, (_, k) => [v.notes[k % v.notes.length], 4]);
   const sounding = notes.filter(([m]) => m > 0).length;
@@ -298,6 +312,12 @@ if (seqParts?.riff?.length) {
   writeWav(join(parts, 'riff.wav'), renderSynth(notes, { duration: span + 1, preset: riffPreset }).samples);
   heads.push('--audio', `Riff:${join(parts, 'riff.wav')}:0.8`);
   console.log(`riff: ${notes.length} notes on the ${riffPreset} synth`);
+}
+if (seqParts && chordsOn === 'synth') {
+  const notes = seqParts.played.filter(n => n.part === 'chord').map(n => ({ t: +(n.time * step).toFixed(4), dur: +(Math.max(1, n.length) * step).toFixed(4), midi: n.midi, vel: 0.7 }));
+  writeWav(join(parts, 'chords.wav'), renderSynth(notes, { duration: span + 1, preset: 'pluck' }).samples);
+  heads.push('--audio', `Synth chords:${join(parts, 'chords.wav')}:1.6`);
+  console.log(`chords: ${notes.length} notes on the pluck synth (no choir)`);
 }
 if (audioOnly) heads.push('--no-video');
 const tool = threeD ? 'tools/performance/show-heads.mjs' : 'tools/performance/render-heads.mjs';
