@@ -163,10 +163,16 @@ pub fn load(w: &RapWord) -> f64 {
 ///
 /// Returns how many sounds were changed or removed.
 pub fn reduce_fast(words: &mut [RapWord], body: BodyMix) -> usize {
+    reduce_fast_keeping(words, body, &[])
+}
+
+/// [`reduce_fast`], leaving whole the words `keep` marks (those whose form was chosen
+/// otherwise, as `render rap --spoken` chooses them from a recording).
+pub fn reduce_fast_keeping(words: &mut [RapWord], body: BodyMix, keep: &[bool]) -> usize {
     let vowel = |s: &Segment| is_vowel(&s.ipa, body);
     let mut changed = 0;
     for i in 0..words.len() {
-        if load(&words[i]) <= REDUCE_LOAD || words[i].segments.len() < 2 {
+        if keep.get(i) == Some(&true) || load(&words[i]) <= REDUCE_LOAD || words[i].segments.len() < 2 {
             continue;
         }
         let next_first = words.get(i + 1).and_then(|w| w.segments.first()).cloned();
@@ -237,6 +243,11 @@ mod tests {
         // the same words at a talking pace are left whole
         let mut slow = vec![word("ˈɹɪpɪŋ", 0.0, 0.6), word("ˈɛvəɹi", 0.6, 1.2), word("ænd", 1.2, 1.6), word("hɪm", 1.6, 2.0)];
         assert_eq!(reduce_fast(&mut slow, b), 0);
+        // words whose form was chosen elsewhere (render rap --spoken) are kept as they are
+        let mut kept = vec![word("ˈsɪŋɪŋ", 0.0, 0.2), word("ænd", 0.2, 0.3), word("hɪm", 0.3, 0.4), word("ˈmi", 0.4, 0.6)];
+        reduce_fast_keeping(&mut kept, b, &[true, false, true]);
+        let got: Vec<String> = kept.iter().map(ipa_of).collect();
+        assert_eq!(got, ["sɪŋɪŋ", "æn", "hɪm", "mi"]);
     }
 
     #[test]

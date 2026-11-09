@@ -138,7 +138,7 @@ fn say_all(utts: &[&Utt], jobs: usize) -> Result<BTreeMap<(String, bool), Said>,
 
 /// The ARPAbet (with a stress digit on vowels) of a G2P segment, before allophones: the inverse of
 /// the G2P's table (`english.rs`), so MFA aligns exactly what the engine says.
-fn to_arpa(s: &Segment) -> Result<String, String> {
+pub(crate) fn to_arpa(s: &Segment) -> Result<String, String> {
     let stress = s.stress.unwrap_or(0);
     let (base, vowel) = match s.ipa.as_str() {
         "ɑ" => ("AA", true),

@@ -52,7 +52,7 @@ fn arpa(base: &str) -> Option<&'static str> {
     })
 }
 const VOWELS: [&str; 17] = ["ɑ", "æ", "ʌ", "ə", "ɔ", "aʊ", "aɪ", "ɛ", "ɝ", "ɚ", "eɪ", "ɪ", "i", "oʊ", "ɔɪ", "ʊ", "u"];
-fn is_vowel(ipa: &str) -> bool {
+pub(crate) fn is_vowel(ipa: &str) -> bool {
     VOWELS.contains(&ipa)
 }
 /// The dictionary keeps one pronunciation per word; for these homographs it kept the rarer one
@@ -71,7 +71,7 @@ fn homograph(w: &str) -> Option<&'static str> {
 
 /// monosyllabic function words are unstressed in running speech (and reduce)
 const FUNCTION_WORDS: &str = "a an the of to in on at by for from with as and or but nor so if is am are was were be been do does did has have had will would can could should shall may might must it its i you he she we they me him her us them my your his our their this that than then there not no";
-fn is_function_word(w: &str) -> bool {
+pub(crate) fn is_function_word(w: &str) -> bool {
     FUNCTION_WORDS.split(' ').any(|f| f == w)
 }
 fn reduce_vowel(ipa: &str) -> Option<&'static str> {
@@ -266,7 +266,7 @@ pub fn arpabet_to_segments(phones: &str) -> Vec<Segment> {
 }
 
 /// American English allophones: flapping and velarised coda /l/ (in place).
-fn apply_allophones(segs: &mut [Segment]) {
+pub fn apply_allophones(segs: &mut [Segment]) {
     for i in 1..segs.len().saturating_sub(1) {
         let (prev, next) = (&segs[i - 1], &segs[i + 1]);
         let pv = is_vowel(&prev.ipa) || prev.ipa == "ɹ";
