@@ -39,7 +39,7 @@ const driveAt = own.indexOf('--drive');
 const drive808 = driveAt >= 0 ? Number(own[driveAt + 1]) : 7;
 // --chords synth: a song's chords on the synth (as the song plays them) instead of the choir heads
 const chordsAt = own.indexOf('--chords');
-const chordsOn = chordsAt >= 0 ? own[chordsAt + 1] : 'choir';
+const chordsOn = chordsAt >= 0 ? own[chordsAt + 1] : 'synth'; // Aaron 11/9: the choir doesn't belong in a song's beat
 const beatAt = own.indexOf('--beat');
 const beatSource = beatAt >= 0 ? own[beatAt + 1] : null;
 const songWordsAt = own.indexOf('--song-words');
@@ -307,17 +307,26 @@ if (seqParts?.drums) {
   writeWav(join(parts, 'kit.wav'), renderKit(kitHits, { duration: span + 1 }).samples);
   heads.push('--panel', `Drums:${join(parts, 'kit.json')}:kit:${join(parts, 'kit.wav')}:1`);
 }
+const keyNotes = [];
 if (seqParts?.riff?.length) {
   const notes = seqParts.riff.map(n => ({ t: +(n.step * step).toFixed(4), dur: +(Math.max(1, n.length) * step).toFixed(4), midi: n.midi }));
   writeWav(join(parts, 'riff.wav'), renderSynth(notes, { duration: span + 1, preset: riffPreset }).samples);
   heads.push('--audio', `Riff:${join(parts, 'riff.wav')}:0.8`);
+  keyNotes.push(...notes.map(n => ({ t: n.t, dur: n.dur, midi: n.midi, part: 'riff' })));
   console.log(`riff: ${notes.length} notes on the ${riffPreset} synth`);
 }
 if (seqParts && chordsOn === 'synth') {
   const notes = seqParts.played.filter(n => n.part === 'chord').map(n => ({ t: +(n.time * step).toFixed(4), dur: +(Math.max(1, n.length) * step).toFixed(4), midi: n.midi, vel: 0.7 }));
   writeWav(join(parts, 'chords.wav'), renderSynth(notes, { duration: span + 1, preset: 'pluck' }).samples);
   heads.push('--audio', `Synth chords:${join(parts, 'chords.wav')}:1.6`);
+  keyNotes.push(...notes.map(n => ({ t: n.t, dur: n.dur, midi: n.midi, part: 'chord' })));
   console.log(`chords: ${notes.length} notes on the pluck synth (no choir)`);
+}
+// the synth's notes on the 3D keyboard panel
+if (keyNotes.length) {
+  keyNotes.sort((a, b) => a.t - b.t || a.midi - b.midi);
+  writeFileSync(join(parts, 'keys.json'), JSON.stringify({ notes: keyNotes }));
+  heads.push('--panel', `Keys:${join(parts, 'keys.json')}:keys`);
 }
 if (audioOnly) heads.push('--no-video');
 const tool = threeD ? 'tools/performance/show-heads.mjs' : 'tools/performance/render-heads.mjs';

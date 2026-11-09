@@ -92,7 +92,9 @@ heads.forEach(h => {
 for (const p of panels) {
   const file = p.label.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '.json';
   copyFileSync(p.json, join(dir, file));
-  voices.splice(1, 0, { name: p.label, tele: file, kind: p.kind });
+  // the kit next to the lead; the keyboard after the drum machine
+  if (p.kind === 'keys') voices.push({ name: p.label, tele: file, kind: p.kind });
+  else voices.splice(1, 0, { name: p.label, tele: file, kind: p.kind });
 }
 // the drum machine (the 808's panel) lights its kick, snare and hat rows from the kit's hits
 const kitPanel = voices.find(v => v.kind === 'kit');
