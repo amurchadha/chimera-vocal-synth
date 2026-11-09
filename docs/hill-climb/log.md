@@ -3803,3 +3803,53 @@ time allows. Item 1 is the largest class, but its terms are TSP diagnostics: a l
   voiced stop before the fricative keeps its voicing through the closure; judge it, then Whisper
   on the TSP-BETTER candidate. If /g/ still breaks, start it at t0 + the 30 ms ramp's half. Watch
   female level z (now 5 dB under the women) and spectrum ð/v (the noise is now there to measure).
+
+## Rap God Mode: the base voice (from 2026-11-09)
+
+### Merge: upstream PR #41 (batch 3, real voices) under our rap base (kept)
+
+- Hypothesis: #41 (jamesondh, 7ca3574) took the same base voice much further than our batch 3
+  did, on the judges both of us use: speakers 1.646 → 0.795 (its judge v2), Whisper 36.75 →
+  27.15 %, singer 0.587 → 0.443. Merged under our rap work (`render rap` and its flags,
+  tools/rap, tools/performance, the deep dive, this log), the male voice the rap uses should
+  start from #41's numbers.
+- Change: merge commit 9f87f68 (`rapgod/engine` = `hill/batch4-base` + `upstream-pr41`). Rule:
+  in engine physics #41's version wins; ours stays where #41 doesn't touch. Our experiments 25
+  (her pulse follows her folds, ec61c00) and 28 (the teeth band follows 1/√A, an affricate held
+  through its VOT, e419226) are replaced by #41's 27/31 (`fold_length`, `open_phase`), 21 (the
+  teeth noise follows the jet) and 22/29 (affricates), including exp 28's +20 ms vowel allowance
+  after a voiceless affricate in `durations.rs`, which git had merged silently. Our `--speedup`
+  factor stays on the stops' aspiration and now also on #41's fricative release of an affricate
+  (1 without `--speedup`). The rest of the merge commit's message lists each file. After
+  re-blessing, every `.f32` sound fixture is byte-identical to #41's; `planning.json` differs only
+  by our pitch held through consonants.
+- Speakers (judge v2): **0.795** training, **0.861** held-out (#41: 0.795, 0.862). Male 0.476,
+  female 1.114. Not comparable with our judge v1 numbers above (exp 28's 1.342).
+- Whisper (our five-offset judge): **28.08 %** training, 40.67 % held-out; at offset 0 alone
+  27.81 % (spread over the five 1.66 points). Against `out/hill/best` (exp 28, 39.80 %): BETTER.
+  #41 reports 27.15 % and 38.33 % with the one-offset judge, so the two agree within the
+  offsets' spread.
+- Singer: training **0.443**, held-out **0.601**, note MCD 8.431 dB, 0 notes off time, 0 dropped
+  (#41: the same three numbers). Its verdict against the batch-3 baseline is WORSE on one term,
+  level 2–4k 0 → 0.344, as #41 logged at its experiment 31 (her vowels lost 1–4 kHz).
+- Rap (the big real-timed judge, private, `render rap … male --timing klatt --speedup 2`, 836
+  scored words): word error rate **96.51 %** against e28's 100.48 % in the same
+  session (dt 117.7 vs 120.9, fv 74.3 vs 77.1, dt+fv 86.9 vs 89.9, the rest 101.5 vs 106.0); e28
+  read 100.03 % on 11-08. −4.0 points: under the 5 that the judge's noise allows, so NO CLEAR CHANGE
+  on words. Median vowel level **71.56 dB** against 69.73 (+1.83 dB; e28's level is the same in
+  both runs, so this is not noise; it is absolute, and #41 also moved the voice's overall level
+  with the lungs' port, so not all of it is the vowels against the consonants). Better in 6 of 7
+  sections.
+- Experiments 25 and 28 on top of #41: not run. Neither composes: each replaces the same lines
+  #41 rewrote (the pulse's amplitude; the teeth band; the affricate's release and folds), and #41's
+  own experiment 21 table already judged v/D forms of the band WORSE. Experiment 25 changes only
+  the female voice; the rap uses the male one.
+- Seen: our reverted experiment 39 (the voiced fricatives' opening 0.035 → 0.09 cm², WORSE on two
+  /g/ terms under judge v1) is the value #41 kept in its experiment 23 (`VOICED_FRICATIVE_OPENING`
+  0.09).
+- Tests: `cargo test --workspace --no-fail-fast` 135 pass, 2 ignored; `bun run test` 30 pass;
+  `bun run typecheck` clean. Not run: `bun tools/e2e.ts`, the bench.
+- Commit: 9f87f68 (merge).
+- Next: the rap's own work starts from this voice. Batch 4's lead (exp 39's opening starting at
+  t0, not 15 ms early) now applies to #41's experiment 23 gesture, which has the same 15 ms lead:
+  its /g/ terms here are level g 1.75 (female), 1.04 and duration g 0.27 (male).
