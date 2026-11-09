@@ -3942,3 +3942,20 @@ is private: no lyrics, audio or derived files in git; numbers and line numbers o
   double time 35). The even split stays.
 - Next: words with 28+ sounds a second are heard 38 % against ~58 % for the rest (76 words), the
   same words whose shortest vowel is under 60 ms (0–37 %).
+
+### 41. In the even split, a crowded word's vowels keep their Klatt minimum (reverted)
+
+- Hypothesis: the even split (consonant 1 share, vowel 1.9–2.5) leaves a crowded word's vowels
+  under their Klatt minimum (23–31 ms seen). With `--speedup 2` a consonant at half its minimum
+  still completes its gesture; a vowel cut short loses its formants. So vowels under their
+  minimum should take time from the word's consonants, each down to its minimum / speedup.
+- Change: `fit_rap_group_with(.., speedup)` and `vowels_keep_their_minimum` in
+  `phonetics/rap.rs`; the CLI passes `--speedup`. Diff at
+  /Volumes/hd/tmp/rapgod/words/e41-vowel-minimum.diff.
+- Judge (as 40): words heard 53.7 → **53.1 %** (−0.6, inside the noise). Hook 54 → 51, verse
+  58 → 56, double time 44 → 49 (+5, at its noise). Words at 28+ sounds a second 38 → 47 %,
+  18–22 a second 60 → 49 %. The shortest vowels hardly moved (under 60 ms: 71 → 66 words): the
+  consonants of crowded words were already near their floor, so there was little to give.
+- Verdict: reverted (no gain past the noise).
+- Next: the crowded words need fewer sounds, not a different split: more of the reductions
+  fast talkers make (`reduce_fast_keeping`), checked word class by word class.
