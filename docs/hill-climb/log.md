@@ -2014,3 +2014,197 @@ audio or derived files in git; only numbers here.
     are "not fast" by that test, though their vowels lose 4.8 dB.
   - The probe scripts (level by neighbour, voicing, blend weights by gesture, closure timing)
     are in /Volumes/hd/tmp/rap-contrast-11-08/.
+
+## Rap voicing (2026-11-08)
+
+Branch `rap/voicing`, on the deep dive (59597a3, whose engine is experiment 28's, e419226). The
+goal is the same as the rap contrast's: a male voice that raps a fast verse understandably. The
+deep dive (`docs/deep-dive/engine-map.md` section 15, `docs/deep-dive/real-voice.md` "Gaps
+ranked") found the fast vowels losing 5–11 dB, mostly their voicing: the folds held apart around
+voiceless consonants, every breath group's exhale on the next group's first word, and the
+consonants' gestures inside the vowels. These experiments try to give the voicing back. The song
+is private: no lyrics, audio or derived files in git; only numbers here.
+
+### The judge: a bigger real-timed set
+
+Round 1's dt+fv (285 scored words) moves ±5 points on noise alone, so no 3–4 point gain could be
+kept. The new set adds five more stretches of the same recording (seconds 40–80, 90–111,
+149–161, 200–221 and 250–269, outside dt and fv), timed from the recognizer's words of the real
+vocal (its own words are the reference there; dt and fv keep the lyrics), split into lines at
+the recording's gaps (≥ 0.12 s once a line has 4 words, at most 10 words), each word's pitch
+the median YIN f0 of the separated vocal over the word (80–230 Hz). 836 scored words: dt 83, fv
+202, the rest 551; 140 lines. Rendered as the rap judge (`render rap … male --timing klatt
+--speedup 2 --probe`), every section in parallel, then `tools/rap/song_wer.py` on each. The
+scores and the scripts (`build_big.py`, `big_eval.sh`) are private, in
+/Volumes/hd/tmp/rapgod/real/big/.
+
+- **Baseline (e28):** word error rate over the big set **100.0 %** (dt 118.5, fv 76.4, dt+fv
+  88.7, the rest 105.9). Median vowel level 69.73 dB (1322 vowels).
+- **Noise:** the same build with every word 13.7 ms later (the CLI has no noise seed; the shift
+  moves the noise and the recognizer's frames): 98.4 % (dt 115.3, fv 75.1, dt+fv 86.8, the rest
+  104.4), vowel 69.74 dB. So ±1.6 points on the big set, ±2 on dt+fv, and up to 10 points on one
+  60-word section. The recognizer is not even repeatable on the same audio: round 1 heard this
+  very dt render (byte-identical) at 115.3 %, this run at 118.5 % (its threads, under load).
+  The keep rule (from the brief): the big set down at least 5 points, and the median vowel up.
+- At most two recognizer processes at a time: seven per run in parallel pushed swap past 10 GB
+  onto the boot disk. A run then takes ~15–30 min.
+- The recognizer gets almost nothing of the synth at this speed: rates near 100 % are mostly
+  substitutions and insertions, so the set can only see large changes.
+
+### Before the experiments: a fricative's voicing comes back on time; its frication ends late
+
+Traced with the deep dive's probe (`ddprobe`, rebuilt on this branch; medians over fv's 11
+vowel–voiceless fricative–vowel tokens, at the artist's timing):
+- The narrowest oral section is below 0.35 cm² (the frication source's full strength) from
+  about 5 ms before the planned fricative to **about 22 ms after its planned end**: the
+  dominant gesture of a non-closing consonant has no release lead (`planner.rs:556–561`) and
+  its 18 ms ramp-out at strength 40 holds the constriction past the boundary. The acoustic
+  fricative is ~75 ms for a 52 ms plan.
+- Voicing (> 0.5) is gone from 25–30 ms before the constriction forms, and back about 15 ms
+  after the frication ends (c1 + 37). So against the acoustic fricative the voice returns as
+  real speakers' does (10–15 ms after, Hoole & Bombien 2014); what the next vowel loses after a
+  fricative is the late oral release. Before it, the loss is the glottis: real voicing runs into
+  the frication (Davidson 2018; Pirello et al. 1997, within its first 30 ms).
+
+### 33. A voiceless fricative's glottal opening is one rise and fall over the fricative, not a plateau from 33 ms before it (reverted)
+
+- Hypothesis: the "voiceless" gesture (and /h/'s) holds the folds fully apart from about 33 ms
+  before the fricative to 23 ms after it at any length (strength 6 saturates `min(1, w/2)` at a
+  third of its ramp), so a 30–60 ms rap vowel before /s f θ ʃ h/ loses its last 25–30 ms of
+  voicing. The real glottal gesture is one abduction–adduction movement that starts at the
+  constriction (German 0 ± 5 ms, American 10–20 ms before), peaks mid-frication and scales with
+  the consonant (Hoole & Bombien 2014; Löfqvist & McGarr 1987, via Davidson 2018); voicing runs
+  into the frication's first ~30 ms (Pirello et al. 1997). Experiment 14 moved the plateau later
+  and the fricatives went weak: a single movement that peaks higher in the middle should keep
+  the frication's flow where the frication is.
+- Change (scratch build, `planner.rs`): the voiceless fricative and /h/ gesture becomes a
+  raised-cosine bump at strength 2 (so the blend's `min(1, w/2)` never saturates): peak 0.42 cm²
+  at the fricative's middle, rising from 15 ms before it, falling to 40 ms after it, so its
+  length is the fricative's plus 55 ms. Where the fricative borders a pause or a voiceless
+  segment, the old opening is kept on that side (a strength-6 hold to the peak), so a phrase-
+  initial /s/ doesn't voice into the breath (experiment 14's caveat). One setting tried.
+- Probe (fv, median of 11 V–fricative–V): voicing 1.0 at the constriction's start, 0.5 at
+  +10 ms, 0.1 at +20 (was gone 20 ms before it); back to 0.67 at c1 + 30 ms (was 0.01; 0.72 at
+  +40). Mean vowel voicing fv 0.68 → 0.74, dt 0.55 → 0.62; median vowel fv +0.6 dB, dt +1.2.
+- Judge (big set): word error rate **97.5 %** (baseline 100.0 and 98.4): dt 121.7 (118.5, 115.3),
+  fv 77.1 (76.4, 75.1), dt+fv 90.1 (88.7, 86.8), the rest 101.3 (105.9, 104.4): m1 107.6, m2
+  97.9, m3 104.4, m4 88.2, m5 103.4. Median vowel 69.73 → **70.86 dB** (+1.1).
+- Guards: not run (the deciding judge failed). The change moves every speech plan with a
+  voiceless fricative or /h/, so goldens, TSP and the singer would all need a run.
+- Verdict: reverted. −1.8 points against the two baseline runs' mean, inside the noise and under
+  the 5 the rule asks for; dt+fv went the wrong way (+2.3). The vowels got 1.1 dB louder and the
+  recognizer did not notice.
+- Commit: none. Diff (env-gated scratch code for 33 and 35) at
+  /Volumes/hd/tmp/rap-voicing-11-08/e33-e35-planner.diff.
+- Next: the after-side is the oral release (above), not the glottis; a fricative release lead
+  would give the next vowel ~20 ms but changes every fricative's length (TSP's male θ and f are
+  already long, 1.78 and 1.66 against 1.45 and 1.46 mean phones, so it might be welcome there).
+
+### 34. A rap's breath groups end only where a breath fits (0.3 s), not at every line and gap (reverted)
+
+- Hypothesis: experiment 30 again, on a judge that can see it. `render rap` starts a breath
+  group at every line and every gap between words (197 groups in the big set); each ends with
+  the exhale (folds apart from 15–45 ms to ~150 ms past its last sound) while the next group's
+  onset is placed up to 0.21 s before its beat, so the exhale lands on the next first word
+  (`bridge`, the deep dive's oracle: +3.3 dB dt, +0.7 fv). Real inspirations take ~0.5 s and
+  breaths at minor breaks vanish at fast rates (Huber & Darling 2011; Grosjean & Collins 1979,
+  via Włodarczak & Heldner 2017). Round 1 used 0.2 s and dt+fv went 3.1 points the right way.
+- Change: experiment 30's `crates/chimera-cli/src/rap.rs` (words less than `BREATH_PAUSE` apart,
+  across lines too, are one group; a word before a short gap runs on to the next), with
+  `BREATH_PAUSE` = 0.3 s: 197 → 18 groups (dt 21 → 2, fv 41 → 4). Rap only; no plan or sound
+  of speech or singing changes, so no golden, TSP or singer run is needed.
+- Judge (big set): **98.0 %** (baseline 100.0 and 98.4): dt 117.3 (118.5, 115.3), fv **80.9**
+  (76.4, 75.1), dt+fv 91.5 (88.7, 86.8), the rest 101.3 (105.9, 104.4): m1 112.0, m2 93.6, m3
+  110.6, m4 87.9, m5 95.6. Median vowel 69.73 → **71.73 dB** (+2.0; dt 65.8 → 70.5, as 30's
+  +4.7; the other sections +0.6 to +3.6).
+- Verdict: reverted. −1.2 points against the two baseline runs' mean, inside the noise; fv got
+  worse by 4.5–5.8. The largest vowel gain of these experiments, and the recognizer still hears
+  no difference.
+- Commit: none. Diff at /Volumes/hd/tmp/rap-voicing-11-08/e34-breath-groups.diff.
+- Next: with 33 it would give the vowels about 3 dB together (experiment 36).
+
+### 35. An aspirated stop's glottal opening peaks at the release, and its VOT follows the syllable (reverted)
+
+- Hypothesis: an aspirated /p t k/'s opening is a saturated plateau from a quarter into the
+  closure to 0.4·VOT past the release, then a 45 ms ramp, with VOT 50 ms unless the stop or its
+  vowel is below its Klatt minimum. The voice comes back ~61 ms after the release at fv's pace
+  (median vowel after the stop: 42 ms), and fv's vowels after an aspirated stop sit 8.5 dB down.
+  Real VOT shrinks 8–21 ms per 100 ms of syllable (Theodore, Miller & DeSteno 2007), and the
+  stop's glottal gesture starts 10–25 ms into the closure and peaks at the release (Hoole &
+  Bombien 2014; Löfqvist & McGarr 1987).
+- Change (scratch build, `planner.rs`): VOT = 50 ms + 0.15·(D − 0.2 s), D the stop plus its
+  vowel (the planner's median CV in the golden plans is 0.21 s), bounded to 18–60 ms; and the
+  aspirated stop's opening becomes a strength-2 raised-cosine bump: rising from 10 ms into the
+  closure (20 ms tried first), peak 0.36 cm² at the release (an affricate's at its frication's
+  end), falling over (VOT − 8 ms)/0.72 so the voice is back VOT after the release. Unaspirated
+  stops keep their gesture. VOT alone (the old plateau, ramp 0.9·VOT) was probed first: the
+  voice came back only 4–6 ms sooner, because fv's slots give their extra time to vowels, so
+  many stops' syllables are long (VOT up to the 60 ms bound).
+- Probe: voice back 33 ms after the release in fv (was 61), 29 in dt (was 50); but the closure
+  now stays voiced 24 ms into it in fv, 13 in dt (was off 4–8 ms before it), ~40 % of a 61 ms
+  closure where speakers voice 14–24 % (Docherty 1992, via Davidson 2018). Median vowel fv
+  +0.2 dB, dt +0.8; mean voicing 0.68 → 0.71, 0.55 → 0.58.
+- Judge (big set): **103.2 %** (baseline 100.0 and 98.4): dt **134.5** (118.5, 115.3), fv 77.9,
+  dt+fv 94.4 (88.7, 86.8), the rest 107.8 (105.9, 104.4): m1 123.0, m2 96.8, m3 107.2, m4 95.1, m5
+  101.4. Median vowel 70.62 dB (+0.9).
+- Verdict: reverted: worse by 4 points against the baseline runs' mean, 16–19 on dt. Likely the
+  voiced closures and the short, weaker aspiration made /p t k/ sound like /b d g/: the change
+  moved the stops' voicing cue, not the vowels'.
+- Commit: none. Diff (env-gated, with 33) at /Volumes/hd/tmp/rap-voicing-11-08/e33-e35-planner.diff.
+- Next: if VOT is retried, keep the opening's start (the closure devoiced as now) and shorten
+  only the fall after the release.
+
+### 36. Experiments 33 and 34 together: the fricatives' opening and the breath groups (reverted)
+
+- Hypothesis: 33 and 34 give voicing back to different vowels (next to voiceless fricatives,
+  and the first words after a line or gap), +1.1 and +2.0 dB each, and each moved the big set
+  1–2 points the right way: together they might clear the noise. 35 made things worse and is
+  left out.
+- Change: 33's planner change with its constants (`FRIC_OPEN_LEAD` 15 ms, `FRIC_OPEN_LAG`
+  40 ms, `FRIC_OPEN_PEAK` 0.42 cm²; the build renders byte-identical to the env-gated one) and
+  34's `rap.rs`.
+- Judge (big set): **93.9 %** against 100.0 at the same timing (−6.1) and 98.4 shifted (−4.5):
+  dt **101.6** (118.5, 115.3), fv 74.9 (76.4, 75.1), dt+fv **82.7** (88.7, 86.8), the rest 99.7
+  (105.9, 104.4): m1 108.8, m2 92.9, m3 108.3, m4 82.4, m5 100.7. Median vowel 69.73 → **72.64
+  dB** (+2.9). Every section moved the right way.
+  - Replicate, every word 13.7 ms later (like for like with the shifted baseline): **95.4 %**
+    against 98.4 (−3.0); dt 109.6, fv 73.6, dt+fv 84.1, the rest 101.2; vowel 72.68 dB. The mean
+    of the two runs is 94.6 against 99.2: **−4.6 points**, just short of the rule's 5. The only
+    candidate here near it.
+- Real speakers (TSP): **WORSE**, training 1.342 → 1.421 (+0.079), held-out 1.458 → 1.515; male
+  0.833 → 0.933, female 1.851 → 1.910. Broken terms, all but one timing: the voiceless
+  fricatives got short as aligned, the vowels before them long.
+  - Duration s: male 1.19 → 1.03 against the people's 1.30 (cost 0 → 1.67), female → 0.99
+    (0.10 → 2.11). ʃ: male 1.26 against 1.66 (0 → 1.13), female 0 → 0.79. f: male 1.66 → 1.17
+    against 1.46 (0.52 → 1.23); the female f went from too long to too short (1.61 → 1.06,
+    people 1.32; cost 1.19 → 1.02). h: female 0.89 against 1.08 (0 → 0.92).
+  - Stressed vowel before a voiceless consonant: cost 0 → 0.86 (male), 0 → 1.31 (female);
+    female unstressed vowels 0.32 → 1.02; male ð 0 → 0.83; male centroid dʒ 0 → 0.57.
+  - So the real speakers' alignments put the boundary where the voicing stops, and the bump's
+    voiced first ~10 ms and earlier return took 15–30 % off every voiceless fricative. The old
+    plateau left f too long (1.61–1.66 against 1.32–1.46) and s about right: the right opening
+    lies between the two.
+- Singer (guard): BETTER, training 0.587 → 0.562 (−0.021 like for like), held-out 0.805 →
+  0.786; 0 of 5793 notes off time, 0 dropped gestures, note MCD 8.502 dB, envelope correlation
+  0.814, pitch error 4.93 cents.
+- Tests: fixtures blessed twice (beatbox-bar, planning.json, voice-artic-sweep,
+  voice-release-cancel and the three voice-speech renders move), then `cargo test --workspace
+  --no-fail-fast`: 115 pass, **1 fails**: `an_f_does_not_click` (/f/ of /ɑfɑ/ onset +14.6 dB
+  over the fricative, male; +13.0 female): with the folds still vibrating as the lip meets the
+  teeth, experiment 19's click comes back. Fixtures restored. Whisper on speech, `bun run test`
+  and the bench not run (two guards had already failed).
+- Verdict: reverted: the rap gain is 4.6 points over two runs (under 5), TSP is WORSE on
+  broken timing terms, and a test fails. The fricative half of the gain costs normal speech its
+  voiceless fricatives.
+- Commit: none. Diff (the constants version) at
+  /Volumes/hd/tmp/rap-voicing-11-08/e36-planner-const.diff, with e34-breath-groups.diff.
+  `out/tsp/try` and `out/hill/try` are in /Volumes/hd/tmp/aside-10-31/.
+- Next:
+  - Keep 34 (rap only, no guard at stake) for a combination, and retry 33's opening with the
+    fully-apart part as long as the old one's at speech rate: e.g. the bump from 25–30 ms
+    before the fricative, or a plateau over the middle that shrinks only when the fricative is
+    short, aiming at TSP's s 1.30 and f 1.32–1.46 mean phones. Check `an_f_does_not_click`
+    first (seconds, not a judge run): /f/ needs the folds apart as the lip closes.
+  - The fricative release lead (the constriction opening ~20 ms after the planned end) is the
+    other half of the vowel after a fricative, untried.
+  - The big set can now see ~5 points; a shifted replicate of each candidate halves its noise.
