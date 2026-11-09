@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { BEATER_REST, HAT_REST, kitPose, type KitTrack } from "../src/show/kit.ts";
+import { BEATER_REST, HAT_REST, kitLevel, kitPose, type KitTrack } from "../src/show/kit.ts";
 
 const kit = (hits: KitTrack["hits"]): KitTrack => ({ hits });
 
@@ -53,5 +53,14 @@ describe("drum kit pose", () => {
     expect(kitPose(k, 1).crashTilt[0]).toBeCloseTo(0, 6);
     expect(Math.abs(kitPose(k, 1.1).crashTilt[0])).toBeGreaterThan(0.05);
     expect(Math.abs(kitPose(k, 4.5).crashTilt[0])).toBe(0);
+  });
+
+  test("a piece's level (the drum machine's knobs) swells just after a hit and dies away", () => {
+    const k = kit([{ t: 1, part: "kick" }]);
+    expect(kitLevel(k, 0.9).kick).toBe(0);
+    expect(kitLevel(k, 1).kick).toBe(0);
+    expect(kitLevel(k, 1.08).kick).toBeGreaterThan(kitLevel(k, 1.01).kick);
+    expect(kitLevel(k, 1.08).kick).toBeGreaterThan(kitLevel(k, 1.6).kick);
+    expect(kitLevel(k, 1.08).snare).toBe(0);
   });
 });

@@ -15,10 +15,13 @@
  * `spell` ({"owr": "our"}) writes a syllable spelled for the dictionary as it should read.
  *
  * A voice can be an instrument instead of a head, its data a .json in `tele`:
- *   { "name": "808", "tele": "808.json", "kind": "808" }    the modeled 808's track (tools/performance/808.mjs)
  *   { "name": "Drums", "tele": "kit.json", "kind": "kit" }  a drum kit's hit list (src/show/kit.ts):
  *       { "hits": [{ "t": 0.0, "part": "kick", "accent": true }, { "t": 0.4, "part": "snare" }, …] },
  *       part one of kick, snare, ghost, hats, open, crash
+ *   { "name": "808", "tele": "808.json", "kind": "808", "kit": "kit.json" }  a step-sequencer drum
+ *       machine running the modeled 808's track (tools/performance/808.mjs) on its own step clock:
+ *       its bass row from the track, its kick, snare and hats rows from the optional `kit` (a hit
+ *       list as above; without it only the bass row lights)
  * Both are drawn as wireframes in 3D and share one WebGL context (render/wire3d.ts); each head has its own.
  */
 import { useEffect, useRef, useState } from "react";
@@ -49,14 +52,15 @@ interface ShowFile {
   layout?: "row" | "lead";
   /** words: timed words (`[{"text","start","end"}]`) for a voice not sung from a melody;
    *  offset: seconds of the voice's own recording to skip, so a late first hit lands on the show's time */
-  /*  kind "808": not a head but the modeled 808 (tools/performance/808.mjs), its track in `tele` (the .json);
+  /*  kind "808": not a head but a drum machine running the modeled 808 (tools/performance/808.mjs), its
+   *  track in `tele` (the .json), and `kit` an optional hit list for its kick, snare and hats rows;
    *  kind "kit": a drum kit, its hit list in `tele` (the .json, see src/show/kit.ts) */
-  voices: { name: string; tele: string; kind?: "808" | "kit"; melody?: string; words?: string; offset?: number }[];
+  voices: { name: string; tele: string; kind?: "808" | "kit"; kit?: string; melody?: string; words?: string; offset?: number }[];
 }
 
 type LoadedVoice =
   | { name: string; offset: number; track: TeleTrack; words: SungWords | null; drum?: undefined; kit?: undefined }
-  | { name: string; offset: number; drum: Track808; track?: undefined; kit?: undefined }
+  | { name: string; offset: number; drum: Track808; hits?: KitTrack; track?: undefined; kit?: undefined }
   | { name: string; offset: number; kit: KitTrack; track?: undefined; drum?: undefined };
 
 interface Loaded {
@@ -103,6 +107,8 @@ export function DuetPage(props: { id: string }) {
       const melodies = await Promise.all(show.voices.map((v) => (v.melody ? fetchOk(base + v.melody).then((r) => r.json() as Promise<Melody>) : null)));
       if (melodies.some(Boolean)) await g2p.load().catch(() => {});
       const timed = await Promise.all(show.voices.map((v) => (v.words ? fetchOk(base + v.words).then((r) => r.json() as Promise<TimedWord[]>) : null)));
+      // a drum machine's kick, snare and hats rows
+      const machineKits = await Promise.all(show.voices.map((v) => (v.kind === "808" && v.kit ? fetchOk(base + v.kit).then((r) => r.json() as Promise<KitTrack>) : null)));
       const words = melodies.map((m, i) => {
         const own = timed[i];
         if (own) return timedWords(own);
@@ -116,12 +122,12 @@ export function DuetPage(props: { id: string }) {
       });
       const voices: LoadedVoice[] = show.voices.map((v, i) => {
         const offset = v.offset ?? 0;
-        if (v.kind === "808") return { name: v.name, drum: teles[i] as Track808, offset };
-        if (v.kind === "kit") {
-          const kit = teles[i] as KitTrack;
-          if (!Array.isArray(kit?.hits)) throw new Error(`${v.tele}: a kit needs "hits"`);
-          return { name: v.name, kit, offset };
-        }
+        const hitList = (kit: KitTrack | null, file: string) => {
+          if (!Array.isArray(kit?.hits)) throw new Error(`${file}: a kit needs "hits"`);
+          return kit;
+        };
+        if (v.kind === "808") return { name: v.name, drum: teles[i] as Track808, hits: machineKits[i] ? hitList(machineKits[i], v.kit!) : undefined, offset };
+        if (v.kind === "kit") return { name: v.name, kit: hitList(teles[i] as KitTrack, v.tele), offset };
         return { name: v.name, track: new TeleTrack(teles[i] as ArrayBuffer), words: words[i], offset };
       });
       await transport.load(audio);
@@ -166,7 +172,7 @@ export function DuetPage(props: { id: string }) {
             v.kit ? (
               <DrumKit3D key={i} name={v.name} kit={v.kit} offset={v.offset} time={() => transport.time()} />
             ) : v.drum ? (
-              <Instrument808 key={i} name={v.name} track={v.drum} offset={v.offset} time={() => transport.time()} />
+              <Instrument808 key={i} name={v.name} track={v.drum} kit={v.hits} offset={v.offset} time={() => transport.time()} />
             ) : (
               <Head key={i} name={v.name} track={v.track} words={v.words} offset={v.offset} show={loaded.show} transport={transport} facing={facing(i, loaded.voices.length)} />
             ),

@@ -146,6 +146,48 @@ function hatAfter(hats: KitIndex["hats"], i: number, age: number): number {
   return before + (1 - before) * (1 - Math.exp(-age / 0.035));
 }
 
+/** A bar's hits by step, per piece: 0 for none, else the hit's strength (the strongest on a step). */
+export interface BarSteps {
+  kick: number[];
+  snare: number[];
+  hats: number[];
+  /** the steps where the hi-hat is let open */
+  open: boolean[];
+  crash: number[];
+}
+
+/**
+ * The bar of 16 steps starting at t0, each `step` s long: which steps each piece is hit on. A hit
+ * belongs to its nearest step, so one a little early or late still lands on the grid.
+ */
+export function barSteps(kit: KitTrack, t0: number, step: number): BarSteps {
+  const ix = indexOf(kit);
+  const open = new Array<boolean>(16).fill(false);
+  const row = (a: Strike[], onHit?: (k: number, i: number) => void) => {
+    const out = new Array<number>(16).fill(0);
+    for (let i = lastAt(a, t0 - step / 2) + 1; i < a.length; i++) {
+      const k = Math.round((a[i].t - t0) / step);
+      if (k > 15) break;
+      if (k < 0) continue;
+      out[k] = Math.max(out[k], a[i].amp);
+      onHit?.(k, i);
+    }
+    return out;
+  };
+  const hats = row(ix.hats, (k, i) => (open[k] = open[k] || ix.hats[i].open));
+  return { kick: row(ix.kick), snare: row(ix.snare), hats, open, crash: row(ix.crash) };
+}
+
+/**
+ * Each piece's level at t, 0..1: a swell over ~30 ms after each hit that dies away (a meter, or a
+ * knob that turns gently with it), unlike the flash, which is brightest at the hit itself.
+ */
+export function kitLevel(kit: KitTrack, t: number): { kick: number; snare: number; hats: number; crash: number } {
+  const ix = indexOf(kit);
+  const lv = (a: Strike[], tau: number) => Math.min(1, sumRecent(a, t, 6 * tau, (age, amp) => (amp / ACCENT) * (1 - Math.exp(-age / 0.03)) * Math.exp(-age / tau)));
+  return { kick: lv(ix.kick, 0.3), snare: lv(ix.snare, 0.3), hats: lv(ix.hats, 0.2), crash: lv(ix.crash, 0.8) };
+}
+
 /** The kit at time t (s): a pure function of the hits and t. */
 export function kitPose(kit: KitTrack, t: number): KitPose {
   const ix = indexOf(kit);
