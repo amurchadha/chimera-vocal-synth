@@ -27,7 +27,7 @@ fn num(v: &Value, key: &str, what: &str) -> Result<f64, String> {
 }
 
 /// Remove `--name value` from the arguments and return the value.
-fn take_opt(a: &mut Vec<String>, name: &str) -> Option<String> {
+pub(crate) fn take_opt(a: &mut Vec<String>, name: &str) -> Option<String> {
     let i = a.iter().position(|x| x == name)?;
     let v = a.get(i + 1).cloned();
     a.drain(i..(i + 2).min(a.len()));

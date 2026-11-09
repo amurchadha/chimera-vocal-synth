@@ -575,8 +575,12 @@ pub fn notes(ctx: &Ctx, a: &[String]) -> Result<(), String> {
 }
 
 /// The beatbox kit, each sound alone, and a preset pattern through the sequencer.
-/// `render beatbox [outdir] [preset name | pattern] [body] [bpm] [bars]`
+/// `render beatbox [outdir] [preset name | pattern] [body] [bpm] [bars] [--tele voice.tele]`:
+/// `--tele` also records the pattern's telemetry, so the beatboxer's head can be drawn with it.
 pub fn beatbox(ctx: &Ctx, a: &[String]) -> Result<(), String> {
+    let mut a = a.to_vec();
+    let tele_out = crate::rap::take_opt(&mut a, "--tele");
+    let a = &a[..];
     let out_dir = arg(a, 0, "out/beatbox");
     let preset_name = arg(a, 1, "Boots and cats");
     let body_name = arg(a, 2, "male");
@@ -680,13 +684,26 @@ pub fn beatbox(ctx: &Ctx, a: &[String]) -> Result<(), String> {
         FS * (BeatPlayer::HORIZON + bars * seq.steps().len() as f64 * seq.step_dur() + 0.3),
     ) as usize;
     let mut out = vec![0f32; total];
+    // telemetry every TELE_HOP samples (a whole number of 128-sample blocks), as render_tracked takes it
+    let mut rec = if tele_out.is_some() { Some(TeleRecorder::new(&mut v)) } else { None };
+    let mut done = 0usize;
     for block in out.chunks_mut(128) {
         let clock = v.clock;
         seq.tick(clock, &mut |gs: &[Gesture]| v.schedule(gs));
         v.render(block);
+        done += block.len();
+        if let Some(r) = rec.as_mut()
+            && done % TELE_HOP == 0
+        {
+            r.snap(&mut v)?;
+        }
     }
     let file = format!("{out_dir}/{}.wav", slug(name));
     ctx.write_wav(&file, &out)?;
+    if let (Some(path), Some(rec)) = (&tele_out, rec) {
+        std::fs::write(path, rec.bytes(body_name.into())).map_err(|e| format!("{path}: {e}"))?;
+        println!("wrote {path}");
+    }
     println!(
         "pattern \"{}\": {} s, peak {} -> {file}",
         name,

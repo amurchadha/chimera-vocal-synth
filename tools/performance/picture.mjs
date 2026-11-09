@@ -5,6 +5,7 @@ import { Glow, label } from '../../src/ui/render/vector.ts';
 import { V } from '../../src/ui/colors.ts';
 import { mouthWords } from '../../src/ui/mouthWords.ts';
 import { fps } from './voice.mjs';
+import { VoiceModel } from '../../src/ui/analysis.ts';
 
 // The browser renderer creates one scratch canvas for the glow pass.
 globalThis.Path2D = Path2D;
@@ -20,7 +21,9 @@ function timecode(t) {
   return [Math.floor(t / 60), Math.floor(t % 60)].map(n => String(n).padStart(2, '0')).join(':');
 }
 
-export function createPicture(model, score, captions, duration) {
+// extras: other heads drawn small where the pitch graph sits (a beat behind the lead), each
+// { label, model: VoiceModel, track: TeleTrack } replayed at the frame's time.
+export function createPicture(model, score, captions, duration, extras = []) {
   const width = 530, height = 632;
   const tract = createCanvas(width, height), ctx = tract.getContext('2d');
   const screen = createCanvas(1280, 720), out = screen.getContext('2d');
@@ -28,6 +31,12 @@ export function createPicture(model, score, captions, duration) {
   renderer.resize(width, height);
   let currentWord = null, wordIndex = 0, lineIndex = 0, formants = [];
   const overlay = mouthWords(() => currentWord, '#ffffff');
+  const small = extras.map(e => {
+    // drawn at the lead's size (the renderer lays the head out for it), then scaled down
+    const canvas = createCanvas(width, height), c = canvas.getContext('2d');
+    const r = new AnatomyRenderer(); r.resize(width, height);
+    return { ...e, canvas, c, r, glow: new Glow() };
+  });
   const pitches = [];
   const text = (str, x, y, size, color = colors.ink, family = 'Archivo, sans-serif') => {
     out.font = size + 'px ' + family;
@@ -99,6 +108,26 @@ export function createPicture(model, score, captions, duration) {
       out.fillStyle = currentWord?.start === word.start ? colors.amber : colors.ink;
       out.fillText(word.text, x, y);
     }
+    if (small.length) {
+      // the beat heads, side by side under the lyrics
+      small.forEach((h, k) => {
+        const m = h.track.message(h.track.indexAt(time + 1 / fps));
+        const art = VoiceModel.articFromArray(m.t.artic);
+        const hf = h.model.frame(art);
+        const msg = { t: m.t, nPh: m.t.phAreas.length, nOr: m.t.orAreas.length };
+        h.c.globalCompositeOperation = 'source-over';
+        h.c.fillStyle = '#000'; h.c.fillRect(0, 0, width, height);
+        h.r.face.update(msg, 1 / fps);
+        h.r.draw(h.c, h.model, hf, art, msg, { pressure: true, particles: false, calipers: false, grid: false }, { dt: 1 / fps, hover: null, drag: null, slots: [], formants: [], info: [] });
+        h.glow.apply(h.canvas, h.c, 1);
+        const x = 585 + k * 164, y = 452;
+        out.fillStyle = '#000'; out.fillRect(x, y, 152, 200);
+        out.strokeStyle = '#45657d'; out.strokeRect(x + .5, y + .5, 151, 199);
+        out.drawImage(h.canvas, x + 1, y + 1, 150, 179);
+        const hit = m.t.outRms > .004;
+        text(h.label.toUpperCase(), x + 8, y + 194, 13, hit ? colors.amber : colors.dim, 'monospace');
+      });
+    } else {
     text('VOICE PITCH', 585, 465, 15, colors.dim, 'monospace');
     const audible = t.outRms > .005 && t.voicing > .25;
     text(audible ? Math.round(t.f0) + ' Hz' : '—', 1140, 465, 17, colors.green, 'monospace');
@@ -116,6 +145,7 @@ export function createPicture(model, score, captions, duration) {
       down = true;
     });
     out.stroke(); out.lineWidth = 1;
+    }
     text(score.bpm + ' BPM', 585, 680, 16, colors.dim, 'monospace');
     text(timecode(time) + ' / ' + timecode(duration), 1060, 680, 20, colors.ink, 'monospace');
     out.fillStyle = colors.green; out.fillRect(0, 715, 1280 * (time + 1 / fps) / duration, 5);
