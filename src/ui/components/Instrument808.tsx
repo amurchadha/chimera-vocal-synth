@@ -1,7 +1,9 @@
 import { useEffect, useRef } from "react";
 import { Screen } from "./Screen.tsx";
-import { TEXT, V, heat } from "../colors.ts";
-import { Glow, beam, beamPts, label, pathOf, ring, seg, type Pt } from "../render/vector.ts";
+import { TEXT, V } from "../colors.ts";
+import { label, labelBlock, labelWidth, type LabelOpts } from "../render/vector.ts";
+import { BD_BOUNDS, draw808, type Drum808 } from "../render/drums3d.ts";
+import { Pen, Stage, runPanel } from "../render/wire3d.ts";
 
 /** The track written by tools/performance/808.mjs (100 frames per second; see its header). */
 export interface Track808 {
@@ -24,6 +26,8 @@ export function noteName(hz: number): string {
 }
 
 const RIPPLE_LIFE = 0.9; // s
+/** the view: from the audience's left, a little above */
+const AZ = -0.72, EL = 0.2;
 
 /** frame value at time t, linearly interpolated (index = t * rate) */
 function at(a: number[], f: number): number {
@@ -34,9 +38,11 @@ function at(a: number[], f: number): number {
 }
 
 /**
- * The 808's panel: a side view of the drum, its head bowed by the modeled displacement, a ripple
- * for every hit, the pitch in Hz and as a note, and an energy bar. Everything is a pure function
- * of time() + offset (no wall-clock deltas), so frame-by-frame video capture gets exact frames.
+ * The 808's panel: a wireframe bass drum in 3D whose played head the model moves. The head bows
+ * with the modeled displacement (its ringing envelope either side), a ripple runs out from every
+ * hit, the output level warms the drum's glow, and the pitch reads out in Hz and as a note.
+ * Everything is a pure function of time() + offset (no wall-clock deltas), so frame-by-frame video
+ * capture gets exact frames.
  */
 export function Instrument808(props: { name: string; track: Track808; time: () => number; offset?: number }) {
   const { name } = props;
@@ -45,42 +51,12 @@ export function Instrument808(props: { name: string; track: Track808; time: () =
   const ref = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
-    const canvas = ref.current!;
-    const ctx = canvas.getContext("2d")!;
-    const glow = new Glow();
-    let w = 0, h = 0, dpr = 1;
-    const fit = () => {
-      const r = canvas.getBoundingClientRect();
-      dpr = Math.min(1.5, window.devicePixelRatio || 1);
-      w = r.width;
-      h = r.height;
-      canvas.width = Math.max(1, Math.round(w * dpr));
-      canvas.height = Math.max(1, Math.round(h * dpr));
-    };
-    fit();
-    const ro = new ResizeObserver(fit);
-    ro.observe(canvas);
-    let raf = 0;
-
-    const loop = () => {
-      raf = requestAnimationFrame(loop);
-      if (Math.min(1.5, window.devicePixelRatio || 1) !== dpr) fit();
-      if (w <= 0 || h <= 0) return;
-      const { track: tr, time, offset = 0 } = propsRef.current;
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.globalCompositeOperation = "source-over";
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = "#000";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      draw(ctx, w, h, tr, time() + offset);
-      glow.apply(canvas, ctx, dpr);
-    };
-    raf = requestAnimationFrame(loop);
-    return () => {
-      cancelAnimationFrame(raf);
-      ro.disconnect();
-    };
+    const stage = new Stage();
+    const pen = new Pen(stage.beams);
+    return runPanel(ref.current!, [stage], {
+      key: () => propsRef.current.time() + (propsRef.current.offset ?? 0),
+      draw: (ctx, w, h, t, render) => draw(ctx, w, h, propsRef.current.track, t, stage, pen, render),
+    });
   }, []);
 
   return (
@@ -90,7 +66,7 @@ export function Instrument808(props: { name: string; track: Track808; time: () =
   );
 }
 
-function draw(ctx: CanvasRenderingContext2D, w: number, h: number, tr: Track808, t: number) {
+function draw(ctx: CanvasRenderingContext2D, w: number, h: number, tr: Track808, t: number, stage: Stage, pen: Pen, render: ((s: Stage, x: number, y: number, w: number, h: number) => void) | null) {
   const n = tr.disp.length;
   if (n === 0) return;
   const f = t * tr.rate - 0.5; // frame k is sampled at (k + 0.5) / rate
@@ -102,94 +78,46 @@ function draw(ctx: CanvasRenderingContext2D, w: number, h: number, tr: Track808,
   const hz = live ? tr.hz[k] : 0;
   const note = live ? tr.note[k] : 0;
 
-  const pad = 14;
-  const barW = Math.max(10, Math.min(18, w * 0.04));
-  const cx = (w - barW - pad) / 2 + pad * 0.5;
-  const readH = Math.min(46, h * 0.28);
-  const dw = Math.min((w - barW - pad * 3) * 0.86, (h - readH - pad * 2) * 1.5);
-  const dh = dw * 0.55;
-  const topY = pad + readH + (h - readH - pad * 2 - dh) * 0.45;
-  const left = cx - dw / 2, right = cx + dw / 2;
-  const headY = topY + dh * 0.12;
-
-  // ripples: every hit in the last RIPPLE_LIFE s, expanding rings out from the head's centre
-  const recent = Math.ceil(RIPPLE_LIFE * tr.rate);
-  const k0 = Math.max(0, Math.floor(f) - recent);
-  for (let i = k0; i <= Math.min(n - 1, Math.floor(f)); i++) {
+  // ripples: every hit in the last RIPPLE_LIFE s
+  const ripples: Drum808["ripples"] = [];
+  const k0 = Math.max(0, Math.floor(f) - Math.ceil(RIPPLE_LIFE * tr.rate));
+  for (let i = Math.min(n - 1, Math.floor(f)); i >= k0; i--) {
     if (!tr.hit[i]) continue;
     const age = t - i / tr.rate;
     if (age < 0 || age > RIPPLE_LIFE) continue;
-    const u = age / RIPPLE_LIFE;
-    const a = (tr.acc?.[i] || 1) > 1 ? 1 : 0.8;
-    for (let r = 0; r < 3; r++) {
-      const uu = u - r * 0.09;
-      if (uu <= 0) continue;
-      const rad = uu * dw * 0.62;
-      const e = new Path2D();
-      e.ellipse(cx, headY, rad, rad * 0.16, 0, 0, Math.PI * 2);
-      beam(ctx, e, V.amber, 1.2, { alpha: a * (1 - uu) * (1 - uu) * (1 - r * 0.25) });
-    }
+    ripples.push({ u: age / RIPPLE_LIFE, a: (tr.acc?.[i] || 1) > 1 ? 1 : 0.8 });
   }
 
-  // shell: a drum from the side, the head across the top
-  const shellB = topY + dh;
-  const shell = pathOf(
-    [[left, headY], [left + dw * 0.04, shellB], [right - dw * 0.04, shellB], [right, headY]] as Pt[],
-  );
-  beam(ctx, shell, V.blue, 1.4);
-  const base = new Path2D();
-  base.ellipse(cx, shellB, dw * 0.46, dh * 0.07, 0, 0, Math.PI);
-  beam(ctx, base, V.blueMid, 1.1);
-  for (let i = 1; i < 6; i++) {
-    const x = left + (dw * i) / 6;
-    seg(ctx, x, headY + dh * 0.14, x, shellB - dh * 0.06, V.blueDim, 0.8, { alpha: 0.5 });
-  }
-  // the lugs (tension rods) at the rim
-  for (const sx of [left, right]) {
-    ring(ctx, sx, headY, 3, V.blueMid, 1);
+  // the readouts across the top, as many as fit: the pitch and its note, then their captions
+  const pad = 12;
+  const size = Math.max(8.75, Math.min(13, w / 22));
+  const cap: LabelOpts = { size: size * 0.8, color: TEXT.secondary, ls: 0.18 };
+  const big: LabelOpts = { size: size * 1.7, color: V.amber, weight: "m", ls: 0.08 };
+  const hzText = hz > 0 ? `${hz.toFixed(0)} HZ` : "-- HZ", noteText = hz > 0 ? noteName(hz) : "--";
+  const tuned = note > 0 ? `TUNED ${noteName(440 * 2 ** ((note - 69) / 12))}` : "";
+  const room = w - 2 * pad;
+  const showNote = labelWidth(ctx, "000 HZ", big) + labelWidth(ctx, "C#0", big) + 12 <= room;
+  const showCaps = showNote && labelWidth(ctx, "PITCH", cap) + labelWidth(ctx, "TUNED C#0", cap) + 12 <= room;
+  const capY = pad + size, bigY = showCaps ? pad + size * 2.6 : pad + size * 1.6;
+  const top = bigY + size * 0.7;
+
+  // the drum, below the readouts, turning slowly so its depth shows
+  const sh = h - top;
+  if (render && sh > 24) {
+    stage.frame(BD_BOUNDS, w, sh, AZ, EL, 0.1);
+    stage.look(live ? 0.07 * Math.sin((2 * Math.PI * t) / 19) : 0);
+    stage.beams.begin();
+    draw808(pen, { disp, amp, energy, ripples });
+    stage.beams.end();
+    render(stage, 0, top, w, sh);
+  } else if (!render && sh > 24) {
+    labelBlock(ctx, "3D NEEDS WEBGL", w / 2, top + sh / 2, w - 2 * pad, { size: cap.size, color: TEXT.secondary, align: "center" });
   }
 
-  // the head: a curve bowed by disp (up positive); the faint envelope outline shows the ringing
-  const bulge = dh * 0.5;
-  const N = 40;
-  const head: Pt[] = [], env: Pt[] = [], envLo: Pt[] = [];
-  for (let i = 0; i <= N; i++) {
-    const u = i / N, s = 1 - (2 * u - 1) ** 2; // fundamental mode shape
-    const x = left + dw * u;
-    head.push([x, headY - disp * bulge * s]);
-    env.push([x, headY - amp * bulge * s]);
-    envLo.push([x, headY + amp * bulge * s]);
+  if (showCaps) {
+    label(ctx, "PITCH", pad, capY, cap);
+    if (tuned) label(ctx, tuned, w - pad, capY, { ...cap, align: "right" });
   }
-  beamPts(ctx, env, V.amber, 0.8, { alpha: 0.35, dash: [3, 4] });
-  beamPts(ctx, envLo, V.amber, 0.8, { alpha: 0.35, dash: [3, 4] });
-  beamPts(ctx, head, V.white, 1.9, { hot: true });
-  seg(ctx, left - 6, headY, right + 6, headY, V.blueDim, 0.8, { alpha: 0.6, dash: [2, 5] });
-
-  // readouts
-  const size = Math.max(9, Math.min(13, w / 24));
-  label(ctx, "PITCH", pad, pad + size, { size: size * 0.8, color: TEXT.secondary, ls: 0.18 });
-  label(ctx, hz > 0 ? `${hz.toFixed(0)} HZ` : "-- HZ", pad, pad + size * 2.6, { size: size * 1.7, color: V.amber, weight: "m", ls: 0.08 });
-  label(ctx, hz > 0 ? noteName(hz) : "--", w - barW - pad * 2, pad + size * 2.6, { size: size * 1.7, color: V.white, weight: "m", align: "right", ls: 0.08 });
-  if (note > 0) {
-    label(ctx, `TUNED ${noteName(440 * 2 ** ((note - 69) / 12))}`, w - barW - pad * 2, pad + size, { size: size * 0.8, color: TEXT.secondary, align: "right", ls: 0.18 });
-  }
-
-  // energy bar, right edge, with a tick scale
-  const bx = w - pad - barW, by0 = pad + readH * 0.2, by1 = h - pad - 12;
-  const frame = pathOf([[bx, by0], [bx + barW, by0], [bx + barW, by1], [bx, by1]] as Pt[], true);
-  beam(ctx, frame, V.blueMid, 1.1);
-  const lvl = Math.max(0, Math.min(1, energy));
-  if (lvl > 0.003) {
-    ctx.save();
-    ctx.globalCompositeOperation = "lighter";
-    const g = ctx.createLinearGradient(0, by1, 0, by0);
-    g.addColorStop(0, heat(0.15));
-    g.addColorStop(0.6, heat(0.6));
-    g.addColorStop(1, heat(1));
-    ctx.fillStyle = g;
-    const hh = (by1 - by0 - 4) * lvl;
-    ctx.fillRect(bx + 2, by1 - 2 - hh, barW - 4, hh);
-    ctx.restore();
-  }
-  label(ctx, "LEVEL", bx + barW / 2, h - pad, { size: Math.max(7, size * 0.7), color: TEXT.secondary, align: "center", ls: 0.12 });
+  label(ctx, hzText, pad, bigY, big);
+  if (showNote) label(ctx, noteText, w - pad, bigY, { ...big, color: V.white, align: "right" });
 }
