@@ -34,6 +34,8 @@ pub struct BeatPlayer {
     mark_pos: usize,
     /// one step's gestures, reused
     buf: Vec<Gesture>,
+    /// the longest pattern kept: [`Self::MAX_STEPS`], or more for an offline render
+    cap: usize,
 }
 
 impl Default for BeatPlayer {
@@ -63,17 +65,26 @@ impl BeatPlayer {
             mark_t: [0.0; MARKS],
             mark_pos: 0,
             buf: Vec::with_capacity(MAX_SOUND_GESTURES),
+            cap: Self::MAX_STEPS,
         }
+    }
+
+    /// A player that keeps patterns of up to `n` steps (at least [`Self::MAX_STEPS`]), for offline
+    /// renders of a whole song's part; its room is allocated here, once.
+    pub fn with_max_steps(n: usize) -> Self {
+        let cap = n.max(Self::MAX_STEPS);
+        BeatPlayer { steps: Vec::with_capacity(cap), cap, ..Self::new() }
     }
 
     pub fn steps(&self) -> &[Option<BeatStep>] {
         &self.steps
     }
 
-    /// Replace the pattern (the first [`Self::MAX_STEPS`] steps). No allocation.
+    /// Replace the pattern (its first [`Self::MAX_STEPS`] steps, or as many as
+    /// [`Self::with_max_steps`] made room for). No allocation.
     pub fn set_steps(&mut self, steps: &[Option<BeatStep>]) {
         self.steps.clear();
-        self.steps.extend_from_slice(&steps[..steps.len().min(Self::MAX_STEPS)]);
+        self.steps.extend_from_slice(&steps[..steps.len().min(self.cap)]);
     }
 
     pub fn step_dur(&self) -> f64 {
@@ -220,5 +231,25 @@ impl BeatPlayer {
     /// [`Self::lead_in_with`] on a fresh buffer (allocates; for the UI and tests).
     pub fn lead_in(id: &str, body: BodyMix) -> f64 {
         Self::lead_in_with(id, body, &mut Vec::with_capacity(MAX_SOUND_GESTURES))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::phonetics::beatbox::parse_beat;
+
+    /// A song's part rendered offline (beat-heads.mjs) is far longer than the live 128 steps; the
+    /// CLI's player kept only the first 128, so every drum head went silent after 13–26 s.
+    #[test]
+    fn offline_player_keeps_the_whole_pattern() {
+        let long = parse_beat(&vec!["B . t ."; 100].join(" "));
+        assert_eq!(long.len(), 400);
+        let mut live = BeatPlayer::new();
+        live.set_steps(&long);
+        assert_eq!(live.steps().len(), BeatPlayer::MAX_STEPS);
+        let mut offline = BeatPlayer::with_max_steps(long.len());
+        offline.set_steps(&long);
+        assert_eq!(offline.steps().len(), 400);
     }
 }

@@ -675,9 +675,11 @@ pub fn beatbox(ctx: &Ctx, a: &[String]) -> Result<(), String> {
         None => 2.0,
     };
     let mut v = voice();
-    let mut seq = BeatPlayer::new();
+    // a whole song's part runs past the live sequencer's 128 steps: room for all of it
+    let steps = parse_beat(text);
+    let mut seq = BeatPlayer::with_max_steps(steps.len());
     seq.body = body_name.into();
-    seq.set_steps(&parse_beat(text));
+    seq.set_steps(&steps);
     seq.set_tempo(bpm, swing);
     seq.start(v.clock);
     let total = js_round(
