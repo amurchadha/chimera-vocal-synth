@@ -2369,3 +2369,43 @@ time allows. Item 1 is the largest class, but its terms are TSP diagnostics: a l
   where the teeth source has weight) moves the male /s/ centroid 4397 → 4385 Hz and /ʃ/ 3348 →
   3197 Hz in the probe: the exit source is not what holds the /s/ centroid down here; the front
   cavity is (experiment 28's Next). Diff at `/Volumes/hd/tmp/batch4-11-08/probe-teeth-only-exit-fade.diff`.
+
+### 39. A voiced fricative's folds part about as wide as its constriction (reverted)
+
+- Hypothesis: diagnosis item 2 and the VTL study's idea 3 (its simple half). With the "voiced
+  frication" gesture at 0.035 cm² the mean glottal area is ~0.09 cm² behind constrictions of
+  0.10–0.20, so the lung pressure drops at the folds, the oral pressure stays at 0.6–1.9 cmH₂O,
+  and /ð v z/ come out as loud, fully voiced approximants (male TSP level ð −10.4 dB against the
+  men's −21.0, v −10.3 against −19.4). Frication and voicing share the pressure only when the
+  glottis is about as wide as the constriction (Stevens 1971; 1998 ch. 8). Upstream experiment 23
+  (e794fd2, not on this lineage) made the same move under an older judge.
+- Change: `planner.rs`: the gesture's target 0.035 → `VOICED_FRICATIVE_OPENING` 0.09 cm² (one
+  value, all four voiced fricatives, both bodies), and it starts 15 ms before t0, when a
+  voiceless fricative's does. Diff at `/Volumes/hd/tmp/batch4-11-08/e39-voiced-fricative-opening.diff`.
+  - Probe (male training sentences, re the stressed vowels): /ð/ −8.6 → −14.1 dB, oral pressure
+    0.56 → 1.11 cmH₂O, voicing 0.81; /v/ → −9.6 dB; /z/ → −10.9 dB, oral pressure 2.9, voicing
+    0.61. `consonant_artifacts` passes.
+- Real speakers (TSP): training 1.342 → **1.246** (−0.096, the largest fall of the batch), held-out
+  1.458 → 1.382, but **WORSE**: two /g/ terms broke.
+  - Male 0.833 → **0.762** (held-out 0.903 → 0.856): level ð 4.08 → 1.95 (−10.4 → −14.8 dB, men
+    −21.0), level v 1.74 → 0.69, duration z 1.86 → 1.27, duration v 0.36 → 0, burst d 0.88 →
+    0.42, centroid z 2.49 → 2.21, duration f 0.52 → 0.25. Broke: **duration g 0.04 → 0.80** (0.84 →
+    0.76 mean phones, men 0.96). Against: spectrum ð 2.93 → 3.57 and v 1.00 → 1.53 (diagnostic),
+    duration tʃ 1.41 → 1.60.
+  - Female 1.851 → **1.731** (held-out 2.012 → 1.909): level ð 2.67 → 0.93, level v 1.20 → 0,
+    duration z 2.93 → 1.86, centroid z 6.71 → 5.70, duration v 1.96 → 1.28, duration k 3.91 →
+    3.32. Broke: **level g 1.43 → 2.22** (−25.8 → −27.6 dB, women −20.4). Against: burst d 0.30
+    → 0.70, level z 0 → 0.19 (−15.5 → −17.8, women −12.6).
+  - Why /g/: the opening starts 15 ms early and ramps over 30 ms, so it reaches into a voiced stop
+    before the fricative ("dogs", "eggs", "bags", common in the Harvard lists). Probe, "The dogs
+    ate the eggs": the /g/ of "dogs" voicing 0.81 → 0.61 (male) and 1.00 → 0.94, level −23.5 →
+    −25.1 dB (female); the other /g/ tokens were devoiced before the change too.
+- Whisper, singer, bench, goldens: not run (the deciding verdict failed). The judge took 57 min
+  (MFA 50 min on a machine at load 26–35).
+- Verdict: reverted. WORSE on two broken /g/ terms; everything the change aimed at moved the
+  right way in both voices.
+- Commit: none (log only).
+- Next: **the batch's best lead.** Same value, but the gesture starts at t0 (no 15 ms lead), so a
+  voiced stop before the fricative keeps its voicing through the closure; judge it, then Whisper
+  on the TSP-BETTER candidate. If /g/ still breaks, start it at t0 + the 30 ms ramp's half. Watch
+  female level z (now 5 dB under the women) and spectrum ð/v (the noise is now there to measure).
