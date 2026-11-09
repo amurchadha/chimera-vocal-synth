@@ -2326,3 +2326,46 @@ time allows. Item 1 is the largest class, but its terms are TSP diagnostics: a l
   point off Whisper and fixed two of its four sites). "Tell the" still loses "the": with the
   channel closed the /ð/ is still a 0.14–0.17 cm² approximant (item 2). "Cold" is still
   "coated": the dark /l/'s own F2 (experiment 22's Next), not the /d/.
+
+### 38. Experiment 21 under the real-speaker judge: a voiceless stop is aspirated before its onset cluster's approximant (reverted)
+
+- Hypothesis: diagnosis item 6 and class 6. The planner aspirates a voiceless stop only before a
+  vowel, so the /p/ of "planks" and the /k/ of "quiet" release with a 12 ms VOT into a voiced
+  /l w/ ("blanks", "glides"). In English a stop that begins an onset cluster with /l ɹ w j/ is
+  aspirated and devoices the approximant (Klatt 1975). Experiment 21 tried it under Whisper alone
+  (NO CLEAR CHANGE); TSP's male stops are short (duration k 0.77 against 1.22, p 0.93 against
+  1.14, t 0.73 against 0.91) and its approximants too voiced (voiced w 0.91 against 0.55), both
+  of which the aspiration should move. Picked over the VTL study's teeth ideas (below) because its
+  patch was ready and the study's idea 1 measured flat.
+- Change: experiment 21's patch ported to the current planner (`planner.rs`: `Seg.word_end`,
+  `onset_cluster`, the `aspirated` test; `syllables.rs`: `is_onset`; `sing.rs`: a sung word's
+  last segment marked `word_end`). No new value. Diff at
+  `/Volumes/hd/tmp/batch4-11-08/e38-onset-cluster-aspiration.diff`. Probe: the /w/ of "quiet"
+  devoiced through its 72 ms (voicing 0, −31 dB).
+- Real speakers (TSP): training 1.342 → 1.320 (−0.022), held-out 1.458 → 1.455, but **WORSE**:
+  two terms broke, both female.
+  - Male 0.833 → **0.804** (held-out 0.903 → 0.901): duration k 3.53 → 1.66 (0.77 → 0.95 mean
+    phones), burst p 1.21 → 0.49, duration p 1.03 → 0.46, duration w 0.38 → 0, duration of a
+    stressed vowel before a sonorant 0.91 → 0.69, duration t 0.83 → 0.70, level w 0.78 → 0.68.
+    Against: level p 1.08 → 1.57, burst k 0.53 → 0.98, duration ɹ 0 → 0.30, duration l 0 → 0.13.
+  - Female 1.851 → 1.836: duration k 3.91 → 1.95, p 0.85 → 0.18, t 0.52 → 0, dʒ 3.03 → 2.67.
+    Broke: **duration l 0 → 0.82** (0.77 → 0.65 mean phones, women 0.83) and **burst k 2.44 →
+    2.95** (+0.51). Against: duration tʃ 1.85 → 2.11, z 2.93 → 3.06.
+  - So the aligner gives the devoiced approximant to the stop: the stops lengthen toward the
+    speakers', and the /l/ loses what they gain. The cluster's /l/ is planned short (Klatt's
+    cluster shortening, ~45–60 ms) and the 50 ms VOT plus its 45 ms ramp devoice all of it.
+- Whisper, singer, bench, tests: not run (the deciding verdict failed). The machine was loaded
+  (two browser and chat helpers at ~100 % CPU each, load average 25–27): this TSP run took 30 min
+  and the first one died in MFA with SIGSEGV (swap 7.2 of 8 GB with Whisper alongside); rerun
+  alone.
+- Verdict: reverted. WORSE on two broken female terms, though the training score fell 0.022 and
+  the male's largest timing term halved.
+- Commit: none (log only).
+- Next: the stop half is right (male duration k 3.53 → 1.66). Keep part of the approximant
+  voiced: real /l/ after /p k/ is devoiced only over the VOT, and the voiced rest carries its
+  length. Either the cluster's approximant keeps Klatt's unshortened duration when the stop is
+  aspirated, or the cluster's VOT ends inside it (half of it); one of those, with the female
+  /l/ watched. Also tried while picking, not judged: the VTL study's idea 1 (fade the exit source
+  where the teeth source has weight) moves the male /s/ centroid 4397 → 4385 Hz and /ʃ/ 3348 →
+  3197 Hz in the probe: the exit source is not what holds the /s/ centroid down here; the front
+  cavity is (experiment 28's Next). Diff at `/Volumes/hd/tmp/batch4-11-08/probe-teeth-only-exit-fade.diff`.
