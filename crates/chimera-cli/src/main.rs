@@ -26,11 +26,9 @@ usage: chimera <command> [args] [--float]
   render creature [creatureId] [outdir]
   render vowels  [male|female|child] [out]
   render rap     <out> <score.json> [male|female|child] [--timing even|klatt] [--speedup x]
-                 [--base-hz hz] [--tele voice.tele] [--lively] [--reduce] [--spoken choice.json]
-                 [--spoken-durs durs.json] [--dump]  (timed words as tools/performance takes them; klatt puts
+                 [--base-hz hz] [--tele voice.tele] [--lively] [--reduce] [--spoken choice.json] [--dump]  (timed words as tools/performance takes them; klatt puts
                  vowel onsets on the beats; --speedup moves articulators up to x faster in short sounds; --spoken
-                 says each word in the casual form a recording chose, tools/rap/spoken_align.py; --spoken-durs
-                 times its sounds as the recording did)
+                 says each word in the casual form a recording chose, tools/rap/spoken_align.py)
   rap score      <out.json> [bpm] [syllables per beat] [hz] [\"line / line\"]  (a test score on a grid)
   rap spoken     <score.json> <out.json>  (every word's dictionary and casual forms in ARPAbet, for an aligner)
   diagnose       [outdir]

@@ -19,10 +19,10 @@ its last consonant where no rule drops it (not /t d ŋ/; "cap" as [kæ]), a weak
 rules' own.
 Writes <choice.json>: {"rules", "words", "choice": {index: form id}} for the words that
 aligned, indices and ids only (no word text), the input of `render rap --spoken`;
-<choice>.stats.json: how many words aligned and chose what, per rule (chosen / offered); and
-<choice>.durs.json: the aligned phones' durations (s) of each word's chosen form, the input of
-`render rap --spoken-durs`. MFA's phones last at least 30 ms (3 frames of 10 ms), so a word said
-faster than that per sound is stretched there and counted "at MFA's shortest".
+and <choice>.stats.json: how many words aligned and chose what, per rule (chosen / offered). Only
+the forms are taken from the recording; the timing of a render stays its score's own. MFA's
+phones last at least 30 ms (3 frames of 10 ms), so a word said faster than that per sound is
+stretched there and counted "at MFA's shortest".
 
 One aligner process (MFA's own -j workers); its files stay in <workdir>.
 """
@@ -158,7 +158,7 @@ def main(argv):
     for s in scores:
         k, forms = s["k"], s["forms"]
         by_arpa = [{f["arpa"]: f["id"] for f in t["forms"]} for t in forms["tokens"]]
-        choice, durs = {}, {}
+        choice = {}
         failed_chunks, far, floor = 0, 0, 0
         for c, (a, b, t0, t1) in enumerate(s["chunks"]):
             stem = f"s{k}c{c:03d}"
@@ -184,7 +184,6 @@ def main(argv):
                 floor += int(bool(ps) and all(p[1] - p[0] < 0.0305 for p in ps))
                 if arpa in by_arpa[i]:
                     choice[str(i)] = by_arpa[i][arpa]
-                    durs[str(i)] = [round(p[1] - p[0], 4) for p in ps]
         ids = Counter(choice.values())
         per_rule, offered = Counter(), Counter()
         for i, t in enumerate(forms["tokens"]):
@@ -203,7 +202,6 @@ def main(argv):
                      by_id=dict(ids.most_common()), by_rule={r: [per_rule[r], offered[r]] for r in sorted(offered)})
         json.dump(dict(rules=forms["rules"], words=s["words"], choice=choice), open(s["choice"], "w"), indent=0)
         json.dump(stats, open(s["choice"].removesuffix(".json") + ".stats.json", "w"), indent=1)
-        json.dump(dict(rules=forms["rules"], words=s["words"], durs=durs), open(s["choice"].removesuffix(".json") + ".durs.json", "w"))
         print(f"{s['choice']}: {len(choice)}/{s['words']} words aligned ({failed_chunks}/{len(s['chunks'])} chunks failed, "
               f"{far} left out > {max_shift} s from the score's time, {floor} at MFA's shortest); "
               f"{stats['chose_variant']} chose a variant of {aligned_with_variants} aligned words that had one")

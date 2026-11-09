@@ -24,10 +24,6 @@ pub struct RapWord {
     pub start: f64,
     pub end: f64,
     pub f0: f64,
-    /// how long a speaker held each of the word's segments (s), from an alignment of a recording:
-    /// with Klatt timing they replace the segments' inherent durations, so the slot is shared
-    /// out in the speaker's proportions (ignored unless one per segment)
-    pub durs: Option<Vec<f64>>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -92,15 +88,8 @@ pub fn fit_rap_group(words: &[RapWord], body: BodyMix, timing: RapTiming) -> Rap
             t0 = words[0].start - PLAN_LEAD;
         }
         RapTiming::Klatt => {
-            let mut inh = klatt_durations(&segs, |s| seg_info(s, body));
-            let mut min: Vec<f64> = segs.iter().zip(&info).map(|(s, i)| klatt_min(s, *i)).collect();
-            for (w, word) in words.iter().enumerate() {
-                let Some(d) = word.durs.as_ref().filter(|d| d.len() == word.segments.len() && d.iter().all(|x| x.is_finite() && *x > 0.0)) else { continue };
-                for (k, i) in (0..n).filter(|&i| word_of[i] == w).enumerate() {
-                    inh[i] = d[k];
-                    min[i] = min[i].min(d[k]);
-                }
-            }
+            let inh = klatt_durations(&segs, |s| seg_info(s, body));
+            let min: Vec<f64> = segs.iter().zip(&info).map(|(s, i)| klatt_min(s, *i)).collect();
             // each word's anchor: its first vowel (a word with none anchors at its first sound)
             let anchor: Vec<usize> = (0..words.len())
                 .map(|w| {
@@ -233,7 +222,7 @@ mod tests {
     use crate::phonetics::ipa::tokenize_ipa;
 
     fn word(ipa: &str, start: f64, end: f64) -> RapWord {
-        RapWord { segments: tokenize_ipa(ipa), start, end, f0: 110.0, durs: None }
+        RapWord { segments: tokenize_ipa(ipa), start, end, f0: 110.0 }
     }
 
     fn ipa_of(w: &RapWord) -> String {
@@ -286,26 +275,6 @@ mod tests {
         let p = |g: &RapGroup| g.segments[2].dur.unwrap();
         assert!(p(&tight) > p(&even), "klatt p {} vs even p {}", p(&tight), p(&even));
         assert!(tight.overfull.is_empty());
-    }
-
-    #[test]
-    fn a_speakers_durations_share_out_the_slot_in_their_proportions() {
-        crate::phonetics::planner::init();
-        // "tap" with a long /t/ and a short vowel, as a speaker might say it
-        let mut w = word("ˈtæp", 0.5, 0.8);
-        let plain = fit_rap_group(std::slice::from_ref(&w), BodyMix::default(), RapTiming::Klatt);
-        w.durs = Some(vec![0.09, 0.05, 0.12]);
-        let said = fit_rap_group(std::slice::from_ref(&w), BodyMix::default(), RapTiming::Klatt);
-        let d = |g: &RapGroup| g.segments.iter().map(|s| s.dur.unwrap()).collect::<Vec<_>>();
-        let (p, s) = (d(&plain), d(&said));
-        // the slot from the vowel onset to the word's end is filled either way
-        assert!((p[1] + p[2] - (s[1] + s[2])).abs() < 1e-9, "{p:?} vs {s:?}");
-        // the onset before the beat keeps the speaker's length, and the /p/ takes more of the slot
-        assert!((s[0] - 0.09).abs() < 1e-9, "{s:?}");
-        assert!(s[2] / s[1] > p[2] / p[1], "{p:?} vs {s:?}");
-        // a duration list of the wrong length is ignored
-        w.durs = Some(vec![0.1, 0.1]);
-        assert_eq!(d(&fit_rap_group(std::slice::from_ref(&w), BodyMix::default(), RapTiming::Klatt)), p);
     }
 
     #[test]

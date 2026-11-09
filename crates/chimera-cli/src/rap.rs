@@ -138,22 +138,6 @@ fn read_choice(path: &str, words: usize) -> Result<BTreeMap<usize, String>, Stri
     Ok(out)
 }
 
-/// `--spoken-durs <durs.json>`: {"rules", "words", "durs": {word index: [seconds per segment]}}
-/// (tools/rap/spoken_align.py writes it beside the choice, for the chosen forms' segments).
-fn read_durs(path: &str, words: usize) -> Result<BTreeMap<usize, Vec<f64>>, String> {
-    let v: Value = serde_json::from_str(&std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?).map_err(|e| format!("{path}: {e}"))?;
-    if v.get("words").and_then(Value::as_u64) != Some(words as u64) {
-        return Err(format!("{path} is not for a score of {words} words"));
-    }
-    let mut out = BTreeMap::new();
-    for (k, d) in v.get("durs").and_then(Value::as_object).ok_or(format!("{path}: no \"durs\""))? {
-        let i: usize = k.parse().map_err(|_| format!("{path}: bad index {k:?}"))?;
-        let d: Option<Vec<f64>> = d.as_array().map(|a| a.iter().filter_map(Value::as_f64).collect());
-        out.insert(i, d.ok_or(format!("{path}: bad durations for {k}"))?);
-    }
-    Ok(out)
-}
-
 fn num(v: &Value, key: &str, what: &str) -> Result<f64, String> {
     v.get(key).and_then(Value::as_f64).filter(|x| x.is_finite()).ok_or_else(|| format!("{what}: missing or bad {key:?}"))
 }
@@ -167,12 +151,10 @@ fn take_opt(a: &mut Vec<String>, name: &str) -> Option<String> {
 }
 
 /// `render rap <out> <score.json> [male|female|child] [--timing even|klatt] [--speedup x]
-/// [--base-hz hz] [--tele voice.tele] [--lively] [--reduce] [--spoken choice.json]
-/// [--spoken-durs durs.json] [--dump]`.
+/// [--base-hz hz] [--tele voice.tele] [--lively] [--reduce] [--spoken choice.json] [--dump]`.
 /// `--spoken`: each word in the form a recording chose for it (`phonetics::spoken`;
-/// `tools/rap/spoken_align.py` makes the choice); `--reduce` then leaves those words alone.
-/// `--spoken-durs durs.json` (Klatt timing): the aligned words' segments share out their slots
-/// in the proportions the recording held them (the same script writes it). `--reduce`: words too
+/// `tools/rap/spoken_align.py` makes the choice); `--reduce` then leaves those words alone. The
+/// timing stays the score's own. `--reduce`: words too
 /// fast for their slot are said the way fast talkers say them (weak forms, then
 /// `phonetics::rap::reduce_fast`). A word's "pronunciation" can also be "/ipa/". `--lively`: stressed syllables
 /// louder and pitch-accented, a fall across each breath group, pitch kicks after obstruents. `--tele` also records the voice's telemetry, which
@@ -190,7 +172,6 @@ pub fn render(ctx: &Ctx, a: &[String]) -> Result<(), String> {
     let tele_out = take_opt(&mut a, "--tele");
     let probe_out = take_opt(&mut a, "--probe");
     let spoken_path = take_opt(&mut a, "--spoken");
-    let durs_path = take_opt(&mut a, "--spoken-durs");
     let reduce = a.iter().any(|x| x == "--reduce");
     a.retain(|x| x != "--reduce");
     let mut reduced = 0usize;
@@ -213,15 +194,6 @@ pub fn render(ctx: &Ctx, a: &[String]) -> Result<(), String> {
         }
         None => None,
     };
-    // --spoken-durs: each aligned word's segment durations as the recording held them
-    let spoken_durs = match &durs_path {
-        Some(p) => {
-            let n = lines.iter().map(|l| l.get("words").and_then(Value::as_array).map_or(0, Vec::len)).sum();
-            Some(read_durs(p, n)?)
-        }
-        None => None,
-    };
-    let mut timed = 0usize;
     let (mut said_other, mut stale) = (0usize, 0usize);
     let mut word_index = 0usize;
     let mut plans: Vec<Plan> = Vec::new();
@@ -291,9 +263,7 @@ pub fn render(ctx: &Ctx, a: &[String]) -> Result<(), String> {
                         segments = tokenize_ipa(weak);
                         reduced += 1;
                     }
-                    let durs = spoken_durs.as_ref().and_then(|d| d.get(&k)).filter(|d| d.len() == segments.len()).cloned();
-                    timed += usize::from(durs.is_some());
-                    rap.push(RapWord { segments, start, end, f0: num(w, "hz", text)?, durs });
+                    rap.push(RapWord { segments, start, end, f0: num(w, "hz", text)? });
                     keep.push(chosen);
                 }
                 if reduce {
@@ -379,9 +349,6 @@ pub fn render(ctx: &Ctx, a: &[String]) -> Result<(), String> {
     println!("wrote {file}  {} s", fixed(end, 2));
     if reduce {
         println!("fast-talk reductions: {reduced}");
-    }
-    if spoken_durs.is_some() {
-        println!("spoken durations: {timed} of {word_index} words timed as the recording");
     }
     if let Some((choice, _)) = &spoken_choice {
         println!("spoken forms: {} of {word_index} words chosen, {said_other} said otherwise than the dictionary", choice.len());
