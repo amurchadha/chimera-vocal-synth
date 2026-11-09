@@ -461,3 +461,19 @@ fn render_rap_spoken_says_the_chosen_forms_and_nothing_else_changes() {
     let out = Command::new(env!("CARGO_BIN_EXE_chimera")).args(["render", "rap", &tmp("spoken-bad"), &score, "male", "--spoken", &choice]).output().unwrap();
     assert!(!out.status.success());
 }
+
+#[test]
+fn render_rap_runs_on_across_lines_and_breathes_only_at_a_gap() {
+    // two lines whose words run on, then a third after a 0.4 s pause: one breath group for the
+    // first two lines, a second after the pause (a group per line restarted the voice from rest
+    // at every line, and a line's first word was heard half as often as the others)
+    let score = tmp("runon-score.json");
+    let line = |ws: &[(&str, f64, f64)]| serde_json::json!({ "words": ws.iter().map(|(t, s, e)| serde_json::json!({ "text": t, "start": s, "end": e, "hz": 110 })).collect::<Vec<_>>() });
+    let lines = [line(&[("dogs", 0.5, 0.7), ("run", 0.7, 0.9)]), line(&[("and", 0.9, 1.0), ("jump", 1.0, 1.3)]), line(&[("high", 1.7, 2.0)])];
+    std::fs::write(&score, serde_json::json!({ "lines": lines }).to_string()).unwrap();
+    let dump = chimera(&["render", "rap", &tmp("runon"), &score, "male", "--dump"]);
+    let groups: Vec<&str> = dump.lines().filter(|l| l.starts_with("t0 ")).collect();
+    assert_eq!(groups.len(), 2, "{dump}");
+    assert_eq!(groups[0].matches('|').count(), 4, "the first two lines are one group: {}", groups[0]);
+    assert_eq!(groups[1].matches('|').count(), 1, "{}", groups[1]);
+}

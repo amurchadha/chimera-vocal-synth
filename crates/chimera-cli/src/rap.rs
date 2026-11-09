@@ -199,106 +199,115 @@ pub fn render(ctx: &Ctx, a: &[String]) -> Result<(), String> {
     let mut plans: Vec<Plan> = Vec::new();
     let mut overfull: Vec<String> = Vec::new();
     let mut last_end = 0.0f64;
+    // A breath group (one plan) runs across the score's lines: the voice restarts only at a gap
+    // between two words, or where singing starts or stops. A plan per line restarted the voice
+    // from rest at every line, overlapping the last line's release, even where the words ran on:
+    // in a rap render the first word of a line was heard 24% of the time, the others 46%.
+    let mut batch: Vec<(usize, &Value)> = Vec::new();
+    let mut batch_sung = false;
+    let mut flush = |batch: &mut Vec<(usize, &Value)>, sung: bool| -> Result<(), String> {
+        if batch.is_empty() {
+            return Ok(());
+        }
+        let start = num(batch[0].1, "start", "word")?;
+        if sung {
+            // as tools/performance: one [midi, weight] per syllable dividing the word's span
+            let mut notes = Vec::new();
+            for (_, w) in batch.iter() {
+                let text = w.get("pronunciation").or(w.get("text")).and_then(Value::as_str).unwrap_or("");
+                let syl = lyrics_to_syllables(text, &g);
+                let ns = w.get("notes").and_then(Value::as_array).ok_or("a sung word needs notes")?;
+                if syl.len() != ns.len() {
+                    return Err(format!("syllable/note mismatch for {text:?}"));
+                }
+                let span = num(w, "end", text)? - num(w, "start", text)?;
+                let total: f64 = ns.iter().map(|n| n[1].as_f64().unwrap_or(0.0)).sum();
+                for (n, s) in ns.iter().zip(syl) {
+                    notes.push(SungNote { midi: n[0].as_f64().unwrap_or(60.0), beats: span * n[1].as_f64().unwrap_or(0.0) / total, syl: s });
+                }
+            }
+            plans.push(plan_song(&notes, &SongOptions { body: body_name.into(), bpm: 60.0, t0: start, vibrato: 22.0 }));
+        } else {
+            let mut rap: Vec<RapWord> = Vec::new();
+            let mut keep: Vec<bool> = Vec::new();
+            for &(k, w) in batch.iter() {
+                let text = w.get("pronunciation").or(w.get("text")).and_then(Value::as_str).unwrap_or("");
+                // "/ipa/" spells the sounds themselves
+                let mut segments = match text.strip_prefix('/').and_then(|s| s.strip_suffix('/')) {
+                    Some(ipa) => tokenize_ipa(ipa),
+                    None => word_segments(&g, text),
+                };
+                if segments.is_empty() {
+                    return Err(format!("no pronunciation for {text:?}"));
+                }
+                let (start, end) = (num(w, "start", text)?, num(w, "end", text)?);
+                let mut chosen = false;
+                if let Some((choice, forms)) = &spoken_choice
+                    && let Some(id) = choice.get(&k)
+                {
+                    // a chosen word is said as chosen, and --reduce leaves it alone
+                    chosen = true;
+                    if id != DICT {
+                        match forms[k].iter().find(|v| v.id == *id) {
+                            Some(v) => {
+                                segments = render_form(v);
+                                said_other += 1;
+                            }
+                            None => stale += 1,
+                        }
+                    }
+                }
+                if reduce
+                    && !chosen
+                    && segments.len() as f64 / (end - start).max(1e-3) > REDUCE_LOAD
+                    && let Some(weak) = weak_form(text)
+                {
+                    segments = tokenize_ipa(weak);
+                    reduced += 1;
+                }
+                rap.push(RapWord { segments, start, end, f0: num(w, "hz", text)? });
+                keep.push(chosen);
+            }
+            if reduce {
+                reduced += reduce_fast_keeping(&mut rap, body_name.into(), &keep);
+            }
+            let mut group = fit_rap_group(&rap, body_name.into(), timing);
+            if lively {
+                shape_pitch(&mut group.segments, body_name.into());
+            }
+            if dump {
+                let s: Vec<String> = group.segments.iter().map(|s| format!("{}{}{}:{:.0}", if s.stress == Some(1) { "ˈ" } else { "" }, s.ipa, if s.word_end == Some(true) { "|" } else { "" }, 1000.0 * s.dur.unwrap_or(0.0))).collect();
+                println!("t0 {:.3}  {}", group.t0, s.join(" "));
+            }
+            for &i in &group.overfull {
+                overfull.push(batch[i].1.get("text").and_then(Value::as_str).unwrap_or("?").to_string());
+            }
+            plans.push(plan_utterance(&group.segments, &PlanOptions { body: body_name.into(), t0: group.t0, f0: Some(rap[0].f0), intonation: Some(Intonation::Flat), speedup, lively: lively.then_some(true), ..Default::default() }));
+        }
+        batch.clear();
+        Ok(())
+    };
     for line in lines {
         let words = line.get("words").and_then(Value::as_array).filter(|w| !w.is_empty()).ok_or("each line needs words")?;
         let sung = line.get("sung").and_then(Value::as_bool) == Some(true);
-        let mut batch: Vec<(usize, &Value)> = Vec::new();
-        let mut flush = |batch: &mut Vec<(usize, &Value)>| -> Result<(), String> {
-            if batch.is_empty() {
-                return Ok(());
-            }
-            let start = num(batch[0].1, "start", "word")?;
-            if sung {
-                // as tools/performance: one [midi, weight] per syllable dividing the word's span
-                let mut notes = Vec::new();
-                for (_, w) in batch.iter() {
-                    let text = w.get("pronunciation").or(w.get("text")).and_then(Value::as_str).unwrap_or("");
-                    let syl = lyrics_to_syllables(text, &g);
-                    let ns = w.get("notes").and_then(Value::as_array).ok_or("a sung word needs notes")?;
-                    if syl.len() != ns.len() {
-                        return Err(format!("syllable/note mismatch for {text:?}"));
-                    }
-                    let span = num(w, "end", text)? - num(w, "start", text)?;
-                    let total: f64 = ns.iter().map(|n| n[1].as_f64().unwrap_or(0.0)).sum();
-                    for (n, s) in ns.iter().zip(syl) {
-                        notes.push(SungNote { midi: n[0].as_f64().unwrap_or(60.0), beats: span * n[1].as_f64().unwrap_or(0.0) / total, syl: s });
-                    }
-                }
-                plans.push(plan_song(&notes, &SongOptions { body: body_name.into(), bpm: 60.0, t0: start, vibrato: 22.0 }));
-            } else {
-                let mut rap: Vec<RapWord> = Vec::new();
-                let mut keep: Vec<bool> = Vec::new();
-                for &(k, w) in batch.iter() {
-                    let text = w.get("pronunciation").or(w.get("text")).and_then(Value::as_str).unwrap_or("");
-                    // "/ipa/" spells the sounds themselves
-                    let mut segments = match text.strip_prefix('/').and_then(|s| s.strip_suffix('/')) {
-                        Some(ipa) => tokenize_ipa(ipa),
-                        None => word_segments(&g, text),
-                    };
-                    if segments.is_empty() {
-                        return Err(format!("no pronunciation for {text:?}"));
-                    }
-                    let (start, end) = (num(w, "start", text)?, num(w, "end", text)?);
-                    let mut chosen = false;
-                    if let Some((choice, forms)) = &spoken_choice
-                        && let Some(id) = choice.get(&k)
-                    {
-                        // a chosen word is said as chosen, and --reduce leaves it alone
-                        chosen = true;
-                        if id != DICT {
-                            match forms[k].iter().find(|v| v.id == *id) {
-                                Some(v) => {
-                                    segments = render_form(v);
-                                    said_other += 1;
-                                }
-                                None => stale += 1,
-                            }
-                        }
-                    }
-                    if reduce
-                        && !chosen
-                        && segments.len() as f64 / (end - start).max(1e-3) > REDUCE_LOAD
-                        && let Some(weak) = weak_form(text)
-                    {
-                        segments = tokenize_ipa(weak);
-                        reduced += 1;
-                    }
-                    rap.push(RapWord { segments, start, end, f0: num(w, "hz", text)? });
-                    keep.push(chosen);
-                }
-                if reduce {
-                    reduced += reduce_fast_keeping(&mut rap, body_name.into(), &keep);
-                }
-                let mut group = fit_rap_group(&rap, body_name.into(), timing);
-                if lively {
-                    shape_pitch(&mut group.segments, body_name.into());
-                }
-                if dump {
-                    let s: Vec<String> = group.segments.iter().map(|s| format!("{}{}{}:{:.0}", if s.stress == Some(1) { "ˈ" } else { "" }, s.ipa, if s.word_end == Some(true) { "|" } else { "" }, 1000.0 * s.dur.unwrap_or(0.0))).collect();
-                    println!("t0 {:.3}  {}", group.t0, s.join(" "));
-                }
-                for &i in &group.overfull {
-                    overfull.push(batch[i].1.get("text").and_then(Value::as_str).unwrap_or("?").to_string());
-                }
-                plans.push(plan_utterance(&group.segments, &PlanOptions { body: body_name.into(), t0: group.t0, f0: Some(rap[0].f0), intonation: Some(Intonation::Flat), speedup, lively: lively.then_some(true), ..Default::default() }));
-            }
-            batch.clear();
-            Ok(())
-        };
+        if sung != batch_sung {
+            flush(&mut batch, batch_sung)?;
+            batch_sung = sung;
+        }
         for w in words {
             let (s, e) = (num(w, "start", "word")?, num(w, "end", "word")?);
             if s < last_end - 1e-6 || e <= s {
                 return Err(format!("invalid or overlapping time for {}", w.get("text").unwrap_or(&Value::Null)));
             }
             if s > last_end + 1e-6 {
-                flush(&mut batch)?;
+                flush(&mut batch, batch_sung)?;
             }
             batch.push((word_index, w));
             word_index += 1;
             last_end = e;
         }
-        flush(&mut batch)?;
     }
+    flush(&mut batch, batch_sung)?;
     if plans.is_empty() {
         return Err("the score is empty".into());
     }
