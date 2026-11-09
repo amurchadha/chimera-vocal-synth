@@ -1,6 +1,6 @@
 //! As-spoken forms: the ways people say words in running speech beside the dictionary's careful
-//! one. CMUdict says "running" [ɹʌnɪŋ], "and" [ænd], "just" [dʒʌst]; a fast talker says [ɹʌnɪn],
-//! [ən] or [n], [dʒʌs]. [`variants`] lists the forms these rules allow for a word in its line,
+//! one. CMUdict says "running" [ɹʌnɪŋ], "and" [ænd], "kept" [kɛpt]; a fast talker says [ɹʌnɪn],
+//! [ən] or [n], [kɛp]. [`variants`] lists the forms these rules allow for a word in its line,
 //! each with an id naming the rules it took, so that a renderer told which form a speaker used
 //! (`chimera render rap --spoken`, the choice made by aligning a recording against every form)
 //! says that one. Nothing here runs unless asked: the dictionary form is unchanged.
@@ -9,8 +9,8 @@
 //! the reductions of conversational American English):
 //! - `in`: -ing as -in' ("running" → ɹʌnɪn): a final unstressed /ɪŋ/ in a word of two or more
 //!   syllables
-//! - `td`: a final /t d/ after a consonant other than /ɹ t d/, not before a vowel ("just" → dʒʌs,
-//!   "kept" → kɛp); never in "-n't", which would turn "won't" into "woan"
+//! - `td`: a final /t d/ after a consonant other than /ɹ t d/, not before a vowel ("kept" → kɛp,
+//!   "fast" → fæs); never in "-n't", which would turn "won't" into "woan"
 //! - `h`: /h/ dropped from a function word inside a line ("him" → ɪm, "has" → æz)
 //! - `syn`: syncope in a word of three or more syllables: an unstressed /ə ɪ/ between a consonant
 //!   and /ɹ l n/ + vowel goes ("family" → fæmli), an unstressed /ɚ/ before a vowel becomes /ɹ/
@@ -292,9 +292,9 @@ mod tests {
 
     #[test]
     fn ing_as_in_and_cluster_t_d_before_a_consonant_only() {
-        let line = [word("dogs", "D AA1 G Z"), word("running", "R AH1 N IH0 NG"), word("just", "JH AH1 S T"), word("fast", "F AE1 S T"), word("again", "AH0 G EH1 N")];
+        let line = [word("dogs", "D AA1 G Z"), word("running", "R AH1 N IH0 NG"), word("kept", "K EH1 P T"), word("fast", "F AE1 S T"), word("again", "AH0 G EH1 N")];
         assert!(has(&line, 1, "in", "ɹʌnɪn"));
-        assert!(has(&line, 2, "td", "dʒʌs"), "{:?}", forms(&line, 2));
+        assert!(has(&line, 2, "td", "kɛp"), "{:?}", forms(&line, 2));
         // before a vowel the /t/ stays
         assert!(!forms(&line, 3).iter().any(|(id, _)| id.contains("td")), "{:?}", forms(&line, 3));
         // one-syllable "-ing" words ("sing") are not -ing
