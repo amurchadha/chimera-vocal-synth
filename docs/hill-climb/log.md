@@ -2208,3 +2208,121 @@ vowel–voiceless fricative–vowel tokens, at the artist's timing):
   - The fricative release lead (the constriction opening ~20 ms after the planned end) is the
     other half of the vowel after a fricative, untried.
   - The big set can now see ~5 points; a shifted replicate of each candidate halves its noise.
+
+## Batch 4: the base voice at talking speed (from 2026-11-08)
+
+Branch `hill/batch4-base`, on `rap/voicing` (5369722; the engine is experiment 28's). The owner
+chose to stop tuning the rap and fix the base voice: at talking speed Whisper misses about 40 % of
+the male voice's words (training 39.80 %), where real speakers are near 0. The judges and keep rule
+are batch 3's: TSP decides (`out/tsp/best`, 1.342; male 0.833), Whisper guards and is the number
+this batch is for (`out/hill/best`, 39.80 %), the singer guards (`out/hill/baseline`).
+
+## Batch 4 (2026-11-08): diagnosis
+
+Training sentences only, male voice, from `out/hill/best/speech/wer.json` (20 sentences × 5
+offsets = 100 hearings, 755 words, 286 word errors). Word errors were aligned to the reference
+and given one primary class by hand; phones were aligned with CMUdict over each whole hearing
+(script: `/Volumes/hd/tmp/batch4-11-08/diag.py`). The causes were then measured on the renders
+with a probe that re-implements `render text` over the public engine API (its WAV is
+byte-identical to the judge's) and records the source and the tract every millisecond
+(`/Volumes/hd/tmp/batch4-11-08/probe`, `seg.py`, `fric.py`, `afterl.py`: per planned segment,
+middle half: level re the median stressed vowel, transglottal and oral pressure, voicing,
+narrowest oral section).
+
+Word errors by confusion class (counts over the 100 hearings; a word can show two classes, its
+primary one is counted):
+
+| # | class | word errors | where |
+|---|---|---|---|
+| 1 | vowel identity (tense or diphthong heard lax, or another vowel) | ~47 | these→this, paints→pinks, sweet→switch, late→next, pushes→post, chair→children, reads→greater, fork→far, canoe→can |
+| 2 | function words dropped, swapped or inserted mid-sentence | ~38 | "tell the depth of a well" → "tell depth as well"; hears a → here is; reads a → greater; pushes a → post is a |
+| 3 | merged or resegmented words | ~35 | canoe slid on → can also feed into; small river eats → smaller it's; chair drinks → children to; round table → roundtable |
+| 4 | the affricate /tʃ/ (→ d, ʃ, θ, or the word lost) | ~33 | birch→bird, chopped→shopped, chain→thing, "a chicken leg is" → like |
+| 5 | the utterance's first word | ~28 | A→The (2 sentences), A→Your, Some→A, Her lost, Glue→Screw |
+| 6 | stop voicing | ~25 | planks→blanks, quiet→glides (unaspirated /p k/ before /l w/, experiment 21), days→taste, fed→fat, fork reads→far greater |
+| 7 | final /z/ dropped or devoiced | ~21 | lemons, bowls, doors, hears, sings |
+| 8 | a stop's release heard as a fricative or another stop | ~20 | wet→west, faced us→phase plus, sweet stone→switch tone |
+| 9 | approximants | ~19 | walks→locks, quiet→glides (/w/ as /l/); cold→coated, sell→set (dark /l/) |
+| – | judge artifact | 4 | "4 hours": the judge's tokenizer drops the digit |
+
+Phones (automatic, so approximate): the largest classes are vowel identity (113 confusions: i→ɪ
+13, eɪ→ɪ 10, ɔ→ɑ 12, ə→æ 10), dropped fricatives (54: z 24, ð 12, s 8, v 5), voicing (52: d→t
+15, z→s 11, k→g 10, p→b 5) and dropped vowels (48: ə 26, ɪ 14). The phones missed most often:
+/tʃ/ 18 of 30 times spoken, /z/ 41 of 95, /eɪ/ 16 of 40, /v/ 12 of 30, /i/ 18 of 60.
+
+Against the TSP male terms and the deep dive's gaps, with what the probe measured:
+
+1. **Vowels (classes 1, 3).** TSP's diagnostics: the stressed vowels' band 1–2 kHz is −19.7 dB re
+   0–8 kHz (men −10.6), 2–4 kHz −26.4 (−18.6), 4–8 kHz −29.6 (−35.0), and H1−H2 +0.7 dB (men
+   −4.0): a muffled, breathy source, with noise where the harmonics should be. Not scored, so TSP
+   can't keep a fix for it alone. Also: the tense vowels after an aspirated stop lose ~50 ms to
+   the aspiration (lead 7, "paints"), and the /i/ after /w/ undershoots (gap 7).
+2. **The voiced non-sibilant fricatives are approximants (classes 2, 3).** TSP: level ð −10.4 dB
+   against −21.0 (cost 4.08, the largest level term), v −10.3 against −19.4 (1.74), voiced ð 0.63
+   against 0.36. Probe: the phrase-initial /ð/ of "The" holds 0.195 cm² with 0.56 cmH₂O behind
+   it (median of 23 /ð/: −8.6 dB re the stressed vowels, voicing 1.0); /v/ 0.21–0.31 cm² (target
+   0.13), −6.3 dB; the voiceless θ and f hold 0.15–0.16 cm² with 2.4–3.8 cmH₂O. A voiced
+   fricative in the model builds almost no oral pressure, so it voices fully and barely hisses.
+3. **An /l/'s side channel stays open into the next consonant (classes 2, 3, 7, 9).** The probe:
+   after /ɫ/ the next coronal starts at 0.348 cm² (the lateral channel, 0.35·lateral) and keeps
+   0.27–0.33 cm² through its middle: the /ð/ of "tell the" (−2.4 dB, oral pressure −0.4: a
+   lateral), the /z/ of "bowls" (0.27 cm²), the /s/ of "table sings" (0.156 against 0.085), the
+   /d/ of "cold" (0.13 cm² at mid-closure, sealed only at its end). No consonant but an /l/
+   moves the lateral articulator, which relaxes over ~50 ms. Whisper: "tell depth", "bowl",
+   "coated", "single".
+4. **Affricates and /ʃ/ (class 4).** TSP: level ʃ −14.7 against −8.9 (2.55), level tʃ −15.6
+   against −10.9 (2.14), duration tʃ 1.20 against 1.52 (1.41), duration dʒ 0.48 against 1.28
+   (4.23; planned at 0.53 mean phones, Klatt's 50 ms /dʒ/). Probe: /tʃ/'s middle half −18 dB.
+5. **Final /z/ (class 7).** TSP: duration z 0.64 against 0.92 (1.86), centroid z 4059 against
+   5117 Hz (2.49), voiced z 0.76 against 0.34. Probe: /z/ is voiced through (1.0) with 0.8–1.9
+   cmH₂O of oral pressure: weak frication under strong voicing, which also pulls its centroid
+   down. The same aerodynamics as item 2.
+6. **Stops (classes 6, 8).** TSP: duration k 0.77 against 1.22 (3.53), p 0.93 against 1.14, t
+   0.73 against 0.91, already short in the plan (k 0.85, t 0.76 of a mean phone); the loudest
+   bursts are released stops where speakers don't release one (synth −0.6 to −10 dB, speakers
+   −44 to −51): every stop before a consonant across words gets a burst ("wet bird" → "west").
+   Onset-cluster /p k/ unaspirated: experiment 21.
+7. **The first word (class 5)**: lead 9, open. **Nasals too long** (n 1.07 against 0.77, ŋ 1.32
+   against 1.04: planned 0.69 and 0.92, so the realisation adds ~0.4), gap 5 (closures easing over
+   their last 0.4 cm²) is the candidate; no Whisper class points at it directly.
+
+Picked for this run: item 3 (a plain fault with four error sites, experiment 37); item 4 by
+experiment 24's open lead (the teeth source's gain, with dental jets excluded); item 2 or 5 if
+time allows. Item 1 is the largest class, but its terms are TSP diagnostics: a lead.
+
+### 37. Lateral bracing: every central tongue-tip consonant closes the /l/'s side channel (reverted)
+
+- Hypothesis: diagnosis item 3. An /l/'s side channel (0.35 cm² × the lateral articulator) is
+  opened by the /l/'s gesture and closed by nothing: no other consonant targets the lateral key,
+  so after the gesture it relaxes at 10 Hz and the next coronal starts at 0.348 cm² and keeps
+  0.27–0.33 through its middle ("tell the", "bowls", "table sings", "cold"). In real central
+  coronals the tongue's sides rise against the upper molars and seal the channel (lateral
+  bracing: Stone 1990; Gick et al. 2017), as fast as the tip moves.
+- Change: `crates/chimera/src/phonetics/planner.rs` `oral_gestures_into`: a consonant whose
+  dominant keys include the tongue tip and that is not a lateral also targets lateral 0 in its
+  dominant (strength-40) gesture. No new value. Diff at
+  `/Volumes/hd/tmp/batch4-11-08/e37-lateral-bracing.diff`.
+  - Probe (male training sentences, middle of the segment after /ɫ/): /ð/ of "tell the" 0.328 →
+    0.144 cm², /z/ of "bowls" 0.269 → 0.098, /s/ of "table sings" 0.156 → 0.065, /d/ of "cold"
+    0.130 → 0.075 at mid-closure; each starts at ~0.24 instead of 0.35.
+- Real speakers (TSP): training 1.342 → 1.340 (**NO CLEAR CHANGE**, −0.002), held-out 1.458 →
+  1.455.
+  - Male 0.833 → **0.816** (held-out 0.903 → 0.903): duration k 3.53 → 2.83, burst d 0.88 → 0.38
+    (−7.6 → −8.4 dB), burst p 1.21 → 0.91, duration d 0.35 → 0.13, duration f 0.52 → 0.36,
+    level p 1.08 → 0.95. Against: level θ 0.32 → 0.52.
+  - Female 1.851 → 1.864 (held-out 2.012 → 2.007): level ð 2.67 → 2.35. Against: burst d 0.30 →
+    0.63, level g 1.43 → 1.64, centroid ʃ 1.78 → 1.94, centroid dʒ 2.85 → 3.01, level l 0.18 →
+    0.31. Most of the moved terms have no /l/ near them: the aligner.
+- Speech (Whisper, run alongside for the batch's number): training 39.80 → 38.74 % (NO CLEAR
+  CHANGE), held-out 45.00 → 41.93 %. Harvard male 30.75 → 29.5, nonsense male 45.92 → 45.07;
+  female 45.75 → 44.25 and 37.18 → 36.62. Right: the male "bowls" (1.8 → 0.4 errors), the female
+  "Rice is often served" (6.0 → 3.8), the female "table sings" ("Roundtable sings"). Unchanged:
+  "tell depth as well" and "coated" in both voices. Worse: the female "chicken leg" (3.6 → 5.0,
+  "the chicken leg": not near an /l/ coda).
+- Singer, bench, tests: not run (the deciding verdict failed).
+- Verdict: reverted. TSP calls it NO CLEAR CHANGE: the male gains 0.017, the female loses 0.013.
+- Commit: none (log only).
+- Next: the fix is right and cheap; keep it as a passenger for a change TSP can see (it took 1
+  point off Whisper and fixed two of its four sites). "Tell the" still loses "the": with the
+  channel closed the /ð/ is still a 0.14–0.17 cm² approximant (item 2). "Cold" is still
+  "coated": the dark /l/'s own F2 (experiment 22's Next), not the /d/.
