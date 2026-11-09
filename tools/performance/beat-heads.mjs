@@ -6,12 +6,12 @@
 // the beat. The working files (the heads, the snapped score) go in <out>.parts/ and are kept.
 // --3d: the heads in 3D on the duet page (show-heads.mjs: the lead large, the band beside it),
 // captured on the GPU, instead of the side view with the band in tiles (render-heads.mjs).
-// usage: bun tools/performance/beat-heads.mjs score.json out.mp4 [--snap] [--3d] [--build] [--breath 0.25] [--beat <onlinesequencer link | notes.json>] [-- render rap options]
+// usage: bun tools/performance/beat-heads.mjs score.json out.mp4 [--snap] [--3d] [--build] [--breath 0.25] [--beat <onlinesequencer link | notes.json>] [--song-words words.json] [--plan] [-- render rap options]
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { render808 } from './808.mjs';
-import { arrange, findLoops, loadSequence } from './sequence.mjs';
+import { arrange, findLoops, loadSequence, songOffset } from './sequence.mjs';
 // 16-bit mono WAV at 48 kHz
 const writeWav = (path, x) => {
   const b = Buffer.alloc(44 + x.length * 2);
@@ -30,7 +30,9 @@ const threeD = own.includes('--3d');
 const build = own.includes('--build');
 const beatAt = own.indexOf('--beat');
 const beatSource = beatAt >= 0 ? own[beatAt + 1] : null;
-const [scorePath, outputPath] = own.filter((a, i) => a !== '--snap' && a !== '--3d' && a !== '--build' && a !== '--breath' && own[i - 1] !== '--breath' && a !== '--beat' && own[i - 1] !== '--beat');
+const songWordsAt = own.indexOf('--song-words');
+const songWords = songWordsAt >= 0 ? JSON.parse(readFileSync(own[songWordsAt + 1], 'utf8')) : null;
+const [scorePath, outputPath] = own.filter((a, i) => a !== '--snap' && a !== '--plan' && a !== '--3d' && a !== '--build' && a !== '--breath' && own[i - 1] !== '--breath' && a !== '--beat' && own[i - 1] !== '--beat' && a !== '--song-words' && own[i - 1] !== '--song-words');
 if (!scorePath || !outputPath) throw new Error('usage: bun beat-heads.mjs score.json out.mp4 [--snap] [--3d] [-- render rap options]');
 const repo = resolve(new URL('../..', import.meta.url).pathname);
 const chimera = join(repo, 'target/release/chimera');
@@ -47,14 +49,18 @@ const syllables = text => {
   if (n > 1 && t.endsWith('e') && !/(le|ee)$/.test(t)) n--;
   return Math.max(1, n);
 };
+// the score's sections (runs of lines with one section name); with a song's words (--song-words,
+// the song's vocal as Whisper heard it), where each sits in the song, for a beat transcribed from it
+const secs = [];
+for (const l of score.lines) {
+  if (!secs.length || secs.at(-1).name !== (l.section ?? '')) secs.push({ name: l.section ?? '', lines: [], shift: 0 });
+  secs.at(-1).lines.push(l);
+}
+if (songWords) for (const sec of secs) sec.song = songOffset(sec.lines.flatMap(l => l.words), Array.isArray(songWords) ? songWords : songWords.words);
+let order = secs;
 if (build) {
-  // --build: the score's sections (runs of lines with one section name) slowest first, so it builds
-  // to its fastest; each keeps its own timing and starts on a half-time bar line, a bar of beat first
-  const secs = [];
-  for (const l of score.lines) {
-    if (!secs.length || secs.at(-1).name !== (l.section ?? '')) secs.push({ name: l.section ?? '', lines: [] });
-    secs.at(-1).lines.push(l);
-  }
+  // --build: the sections slowest first, so it builds to its fastest; each keeps its own timing and
+  // starts on a half-time bar line, a bar of beat first
   const bar = 4 * 60 / (bpm / 2);
   const ranked = secs.map((sec, i) => {
     const ws = sec.lines.flatMap(l => l.words);
@@ -64,10 +70,12 @@ if (build) {
   let at = bar;
   for (const r of ranked) {
     const shift = at - r.a;
+    r.sec.shift = shift;
     for (const l of r.sec.lines) for (const w of l.words) { w.start = +(w.start + shift).toFixed(4); w.end = +(w.end + shift).toFixed(4); }
     at = Math.ceil((r.b + shift + 60 / bpm) / bar) * bar;
   }
-  score.lines = ranked.flatMap(r => r.sec.lines);
+  order = ranked.map(r => r.sec);
+  score.lines = order.flatMap(sec => sec.lines);
   console.log(`built: ${ranked.length} sections slowest first (${ranked.map(r => r.rate.toFixed(1)).join(' → ')} syllables/s)`);
 }
 const words = score.lines.flatMap(l => l.words);
@@ -79,6 +87,7 @@ const breathAt = own.indexOf('--breath');
 const breath = breathAt >= 0 ? Number(own[breathAt + 1]) : 0.25;
 const pauseAfter = words.map((w, i) => i + 1 < words.length && words[i + 1].start - w.end > breath);
 
+let snapShift = 0;
 if (snap) {
   // the grid offset that puts the starts closest to it, judged on the circle of one step
   let sx = 0, sy = 0;
@@ -86,6 +95,7 @@ if (snap) {
   const offset = ((Math.atan2(sy, sx) / (2 * Math.PI)) * step + step) % step;
   // shift right so the grid starts at 0 (the beat's first downbeat), then round each start
   const shift = step - offset;
+  snapShift = shift;
   let last = -Infinity;
   const starts = words.map(w => {
     let k = Math.round((w.start + shift) / step);
@@ -171,24 +181,55 @@ const beatHeads = [
 ];
 const heads = [];
 const leadIns = [];
-// --beat: someone's sequence of the beat (sequence.mjs): its bass on the 808, its chords on the
-// choir, looped under the performance (its busiest block where the rap is fastest); drums stay ours
+// --beat: a sequence of the beat (sequence.mjs). A transcription of the song (transcribe-beat.py)
+// plays the song's own drums, bass and chords where the song has each section's words: every
+// section's steps shifted by its place in the song, taking over at the song's bar line before its
+// first word. Any other sequence gives its bass to the 808 and its chords to the choir, looped
+// (its busiest block where the rap is fastest), and the drums stay ours.
 let seqParts = null;
 if (beatSource) {
   const seq = await loadSequence(beatSource, join(parts, 'sequence.pb'));
-  const loops = findLoops(seq);
   const steps = Math.ceil(span / step);
-  seqParts = arrange(seq, steps, k => (level[Math.floor((k * step) / unit)] === 3 ? loops.busy : loops.main), { bars: loops.bars });
-  // the drop before the fastest part takes the 808 out too
-  const bassSteps = seqParts.bass.split(' ').map((x, k) => { const u = Math.floor((k * step) / unit); return drop[u] && k * step - u * unit >= unit / 2 ? '.' : x; });
-  seqParts.bass = bassSteps.join(' ');
-  console.log(`sequence: ${seq.notes.length} notes at ${seq.bpm} BPM, played at ${bpm}; main loop bars ${loops.main + 1}-${loops.main + loops.bars}, busiest ${loops.busy + 1}-${loops.busy + loops.bars}`);
+  if (seq.song) {
+    const origin = seq.origin ?? 0;
+    if (!songWords) console.warn('a song transcription without --song-words: the score\'s times are taken as the song\'s');
+    const spans = order.map(sec => {
+      const ws = sec.lines.flatMap(l => l.words);
+      const first = Math.round(Math.min(...ws.map(w => w.start)) / step);
+      const D = Math.round(((sec.song?.offset ?? 0) - sec.shift - snapShift - origin) / step);
+      return { sec, first, last: Math.ceil(Math.max(...ws.map(w => w.end)) / step), D };
+    });
+    spans.forEach((sp, i) => {
+      const prev = i ? spans[i - 1].last : -Infinity;
+      const onBar = sp.first - (((sp.first + sp.D) % 16) + 16) % 16;
+      const onBeat = sp.first - (((sp.first + sp.D) % 4) + 4) % 4;
+      sp.from = i === 0 ? 0 : onBar >= prev ? onBar : onBeat >= prev ? onBeat : sp.first;
+    });
+    const sourceAt = k => { let sp = spans[0]; for (const x of spans) if (x.from <= k) sp = x; return k + sp.D; };
+    seqParts = arrange(seq, steps, sourceAt);
+    console.log(`song beat: ${seq.notes.length} notes at ${seq.bpm} BPM; ${spans.map(sp => `${sp.sec.name || 'section'} at the song's ${(origin + (sp.first + sp.D) * step).toFixed(1)} s${sp.sec.song ? ` (${sp.sec.song.agree} of ${sp.sec.song.of} words agree)` : ''}`).join('; ')}`);
+  } else {
+    const loops = findLoops(seq);
+    const len = loops.bars * 16;
+    seqParts = arrange(seq, steps, k => (level[Math.floor((k * step) / unit)] === 3 ? loops.busy : loops.main) * 16 + (k % len));
+    // the drop before the fastest part takes the 808 out too
+    seqParts.bass = seqParts.bass.split(' ').map((x, k) => { const u = Math.floor((k * step) / unit); return drop[u] && k * step - u * unit >= unit / 2 ? '.' : x; }).join(' ');
+    console.log(`sequence: ${seq.notes.length} notes at ${seq.bpm} BPM, played at ${bpm}; main loop bars ${loops.main + 1}-${loops.main + loops.bars}, busiest ${loops.busy + 1}-${loops.busy + loops.bars}`);
+  }
+  // the hits, for a drum kit panel
+  if (seqParts.drums) writeFileSync(join(parts, 'kit.json'), JSON.stringify({ hits: seqParts.hits.map(h => ({ t: +(h.step * step).toFixed(4), part: h.part, ...(h.accent ? { accent: true } : {}) })) }));
 }
+// --plan: say where everything goes and stop before rendering
+if (own.includes('--plan')) process.exit(0);
 for (const h of beatHeads) {
   const dir = join(parts, h.label.toLowerCase());
   const tele = dir + '.tele';
   const phrases = KIT[h.label].map(p => p.split(/[\s|]+/).filter(Boolean));
-  const steps = level.flatMap((l, k) => {
+  // the song's own drums (a transcription) play in 16ths of the full bpm
+  const theirs = seqParts?.drums?.[h.label];
+  if (theirs && !/[^.\s]/.test(theirs)) continue;
+  const hbpm = theirs ? bpm : h.bpm;
+  const steps = theirs ? theirs.split(' ') : level.flatMap((l, k) => {
     const p = phrases[l];
     return drop[k] ? [...p.slice(0, p.length / 2), ...rests(p.length / 2)] : p;
   });
@@ -204,9 +245,9 @@ for (const h of beatHeads) {
   // the lead-in: its first sound alone, from silence
   const first = steps.find(x => x !== '.' && x !== '-') ?? phrases.flat().find(x => x !== '.');
   const probe = join(parts, h.label.toLowerCase() + '-leadin');
-  if (spawnSync(chimera, ['render', 'beatbox', probe, `${first} . . .`, 'male', String(h.bpm), '1'], { stdio: 'ignore' }).status !== 0) throw new Error(`the ${h.label} lead-in probe failed`);
+  if (spawnSync(chimera, ['render', 'beatbox', probe, `${first} . . .`, 'male', String(hbpm), '1'], { stdio: 'ignore' }).status !== 0) throw new Error(`the ${h.label} lead-in probe failed`);
   const offset = Math.max(0, wavStart(join(probe, 'pattern.wav')));
-  const r = spawnSync(chimera, ['render', 'beatbox', dir, steps.join(' '), 'male', String(h.bpm), '1', '--tele', tele], { stdio: ['ignore', 'ignore', 'inherit'] });
+  const r = spawnSync(chimera, ['render', 'beatbox', dir, steps.join(' '), 'male', String(hbpm), '1', '--tele', tele], { stdio: ['ignore', 'ignore', 'inherit'] });
   if (r.status !== 0) throw new Error(`the ${h.label} head failed to render`);
   leadIns.push(offset);
   heads.push('--head', `${h.label}:${tele}:${join(dir, 'pattern.wav')}:${h.gain}:${offset.toFixed(4)}`);
