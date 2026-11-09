@@ -64,8 +64,8 @@ for (const l of score.lines) {
 if (songWords) for (const sec of secs) sec.song = songOffset(sec.lines.flatMap(l => l.words), Array.isArray(songWords) ? songWords : songWords.words);
 let order = secs;
 if (build) {
-  // --build: the sections slowest first, so it builds to its fastest; each keeps its own timing and
-  // starts on a half-time bar line, a bar of beat first
+  // --build: the sections slowest first, so it builds to its fastest; each keeps its own timing; the
+  // first starts after a half-time bar of beat, each next one on the beat after the last word
   const bar = 4 * 60 / (bpm / 2);
   const ranked = secs.map((sec, i) => {
     const ws = sec.lines.flatMap(l => l.words);
@@ -77,7 +77,9 @@ if (build) {
     const shift = at - r.a;
     r.sec.shift = shift;
     for (const l of r.sec.lines) for (const w of l.words) { w.start = +(w.start + shift).toFixed(4); w.end = +(w.end + shift).toFixed(4); }
-    at = Math.ceil((r.b + shift + 60 / bpm) / bar) * bar;
+    // the next section comes in on the next beat after a breath (0.15 s), not the next bar line:
+    // waiting for a half-time bar left 2.5-2.9 s of dead air at the joins
+    at = Math.ceil((r.b + shift + 0.15) / (60 / bpm)) * (60 / bpm);
   }
   order = ranked.map(r => r.sec);
   score.lines = order.flatMap(sec => sec.lines);
