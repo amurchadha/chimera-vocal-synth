@@ -1,7 +1,8 @@
 // The performance video with a beat behind the lead: like render-new.mjs (the lead's sound and
-// telemetry from `chimera render rap`), plus up to four more heads drawn small under the lyrics,
+// telemetry from `chimera render rap`), plus up to five more heads drawn small under the lyrics,
 // each replayed from its own telemetry (`chimera render beatbox … --tele`) and mixed into the sound.
-// usage: bun tools/performance/render-heads.mjs score.json out.mp4 --head Label:voice.tele:voice.wav [--head …] [--beat-gain g] [-- render rap options]
+// usage: bun tools/performance/render-heads.mjs score.json out.mp4 --head Label:voice.tele:voice.wav[:gain[:offset s]] [--head …] [--beat-gain g] [-- render rap options]
+// offset: seconds of the head's start to skip (sound and picture), so a late first hit lands on time.
 // The heads' files start at the score's time 0. Needs `bun run wasm` and `cargo build --release -p chimera-cli`.
 import { mkdtempSync, readFileSync, renameSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -18,15 +19,15 @@ let beatGain = 0.55;
 const positional = [];
 for (let i = 0; i < own.length; i++) {
   if (own[i] === '--head') {
-    const [label, tele, wav] = (own[++i] ?? '').split(':');
-    if (!label || !tele || !wav) throw new Error('--head needs Label:voice.tele:voice.wav');
-    heads.push({ label, tele: resolve(tele), wav: resolve(wav) });
+    const [label, tele, wav, gain = '1', offset = '0'] = (own[++i] ?? '').split(':');
+    if (!label || !tele || !wav) throw new Error('--head needs Label:voice.tele:voice.wav[:gain[:offset s]]');
+    heads.push({ label, tele: resolve(tele), wav: resolve(wav), gain: Number(gain), offset: Number(offset) });
   } else if (own[i] === '--beat-gain') beatGain = Number(own[++i]);
   else positional.push(own[i]);
 }
 const [scorePath, outputPath] = positional;
 if (!scorePath || !outputPath) throw new Error('usage: bun render-heads.mjs score.json out.mp4 --head Label:voice.tele:voice.wav [--head …] [--beat-gain g] [-- render rap options]');
-if (heads.length > 4) throw new Error('at most four heads fit under the lyrics');
+if (heads.length > 5) throw new Error('at most five heads fit under the lyrics');
 const repo = resolve(new URL('../..', import.meta.url).pathname);
 const ffmpeg = process.env.FFMPEG || 'ffmpeg';
 const fps = 25, sampleRate = 48000;
@@ -59,7 +60,7 @@ try {
   const model = new VoiceModel(track.body, sampleRate);
   const extras = heads.map(h => {
     const t = loadTrack(h.tele);
-    return { label: h.label, track: t, model: new VoiceModel(t.body, sampleRate) };
+    return { label: h.label, track: t, model: new VoiceModel(t.body, sampleRate), offset: h.offset };
   });
   const captions = score.lines.flatMap(l => l.words).map((w, key) => ({ ...w, key }));
   const duration = track.duration;
@@ -87,7 +88,9 @@ try {
   heads.forEach((h, k) => {
     args.push('-i', h.wav);
     const p = Math.max(1e-4, wavPeak(h.wav));
-    parts.push(`[${k + 2}:a]volume=${(0.86 * beatGain / p).toFixed(5)}[h${k}]`);
+    // a head's offset (s) skips that much of its start: its sequencer's lead-in, so its first hit lands on the grid
+    const trim = h.offset > 0 ? `atrim=start=${h.offset.toFixed(4)},asetpts=PTS-STARTPTS,` : '';
+    parts.push(`[${k + 2}:a]${trim}volume=${(0.86 * beatGain * h.gain / p).toFixed(5)}[h${k}]`);
   });
   const ins = ['[l]', ...heads.map((_, k) => `[h${k}]`)].join('');
   parts.push(`${ins}amix=inputs=${heads.length + 1}:duration=first:normalize=0,alimiter=limit=0.95:level=false[a]`);

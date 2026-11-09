@@ -111,7 +111,7 @@ export function createPicture(model, score, captions, duration, extras = []) {
     if (small.length) {
       // the beat heads, side by side under the lyrics
       small.forEach((h, k) => {
-        const m = h.track.message(h.track.indexAt(time + 1 / fps));
+        const m = h.track.message(h.track.indexAt(Math.max(0, time + 1 / fps + (h.offset ?? 0))));
         const art = VoiceModel.articFromArray(m.t.artic);
         const hf = h.model.frame(art);
         const msg = { t: m.t, nPh: m.t.phAreas.length, nOr: m.t.orAreas.length };
@@ -120,12 +120,14 @@ export function createPicture(model, score, captions, duration, extras = []) {
         h.r.face.update(msg, 1 / fps);
         h.r.draw(h.c, h.model, hf, art, msg, { pressure: true, particles: false, calipers: false, grid: false }, { dt: 1 / fps, hover: null, drag: null, slots: [], formants: [], info: [] });
         h.glow.apply(h.canvas, h.c, 1);
-        const x = 585 + k * 164, y = 452;
-        out.fillStyle = '#000'; out.fillRect(x, y, 152, 200);
-        out.strokeStyle = '#45657d'; out.strokeRect(x + .5, y + .5, 151, 199);
-        out.drawImage(h.canvas, x + 1, y + 1, 150, 179);
+        // up to five tiles across the 650 px under the lyrics, the head keeping its aspect
+        const gap = 12, tw = Math.min(152, (650 - gap * (small.length - 1)) / small.length);
+        const th = Math.round(tw * height / width), x = 585 + k * (tw + gap), y = 452;
+        out.fillStyle = '#000'; out.fillRect(x, y, tw, th + 22);
+        out.strokeStyle = '#45657d'; out.strokeRect(x + .5, y + .5, tw - 1, th + 21);
+        out.drawImage(h.canvas, x + 1, y + 1, tw - 2, th);
         const hit = m.t.outRms > .004;
-        text(h.label.toUpperCase(), x + 8, y + 194, 13, hit ? colors.amber : colors.dim, 'monospace');
+        text(h.label.toUpperCase(), x + 8, y + th + 16, 13, hit ? colors.amber : colors.dim, 'monospace');
       });
     } else {
     text('VOICE PITCH', 585, 465, 15, colors.dim, 'monospace');
