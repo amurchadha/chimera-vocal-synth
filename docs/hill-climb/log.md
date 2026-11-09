@@ -3917,3 +3917,28 @@ is private: no lyrics, audio or derived files in git; numbers and line numbers o
   pronunciation prior for the dictionary form (MFA's `word\tprob\tphones`) could lower the ~10 %
   floor; judge it with the decoys. The hook's timing (41 of 66 words recognizer-timed) keeps 26
   of its words out of the choice.
+
+### 40. Breath groups across lines, judged on a whole song (kept: e3eee4f)
+
+- Repeats experiments 30 and 34 (reverted), on a different judge. `render rap` made one plan per
+  line, so every line restarted the voice from rest while the last line's release still sounded,
+  even where the words ran on (beat-heads closes gaps under 0.25 s: the Rap God performance is 3
+  breath groups by its pauses, and the render made 59).
+- Change: `crates/chimera-cli/src/rap.rs`: one batch across lines; it flushes only at a gap
+  between words or where singing starts or stops. Unlike 30, no new pause rule: a gap is a gap
+  (beat-heads decides them). Rap only: TSP and the singer don't use it; goldens unchanged.
+- Judge: `tools/performance/words-heard.py`, Whisper small.en per line with 3 clip margins
+  (0.3/0.4/0.5 s), a word scored by the share of passes that heard it, on the whole 84 s Rap God
+  performance at its rendered timing (347 words; `--speedup 2 --lively --reduce --spoken`).
+  Its noise, measured on two renders whose lines are identical to 0.1 dB: 1 point overall, 5 in
+  the 83-word double time.
+  - Words heard **43.2 → 53.7 %**: hook 43 → 54, verse 47 → 58, double time 33 → 44. A line's
+    first word 24 → 51 % (the rest 46 → 52 %, the last word 47 → 60 %).
+  - 30 and 34 measured 2–3 points the right way on the rate judge, under its 5-point rule; the
+    whole song gives 347 words to that judge's smaller sets and clears its own noise tenfold.
+- Test: `render_rap_runs_on_across_lines_and_breathes_only_at_a_gap` (crates/chimera-cli/tests/
+  cli.rs): 3 lines with one pause give 2 groups; fails on the old code (3).
+- Same judge, same render, `--timing klatt` instead of the default even split: 46.7 % (−7.0;
+  double time 35). The even split stays.
+- Next: words with 28+ sounds a second are heard 38 % against ~58 % for the rest (76 words), the
+  same words whose shortest vowel is under 60 ms (0–37 %).
