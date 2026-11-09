@@ -4,7 +4,9 @@
 // --snap moves every word's start onto the 16th-note grid of the score's bpm first (one offset
 // fitted for the whole score, then each start rounded), so a score whose timing drifts sits on
 // the beat. The working files (the heads, the snapped score) go in <out>.parts/ and are kept.
-// usage: bun tools/performance/beat-heads.mjs score.json out.mp4 [--snap] [-- render rap options]
+// --3d: the heads in 3D on the duet page (show-heads.mjs: the lead large, the band beside it),
+// captured on the GPU, instead of the side view with the band in tiles (render-heads.mjs).
+// usage: bun tools/performance/beat-heads.mjs score.json out.mp4 [--snap] [--3d] [-- render rap options]
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -14,8 +16,9 @@ const dash = argv.indexOf('--');
 const own = dash < 0 ? argv : argv.slice(0, dash);
 const rapArgs = dash < 0 ? [] : argv.slice(dash + 1);
 const snap = own.includes('--snap');
-const [scorePath, outputPath] = own.filter(a => a !== '--snap');
-if (!scorePath || !outputPath) throw new Error('usage: bun beat-heads.mjs score.json out.mp4 [--snap] [-- render rap options]');
+const threeD = own.includes('--3d');
+const [scorePath, outputPath] = own.filter(a => a !== '--snap' && a !== '--3d');
+if (!scorePath || !outputPath) throw new Error('usage: bun beat-heads.mjs score.json out.mp4 [--snap] [--3d] [-- render rap options]');
 const repo = resolve(new URL('../..', import.meta.url).pathname);
 const chimera = join(repo, 'target/release/chimera');
 const parts = resolve(outputPath) + '.parts';
@@ -104,5 +107,6 @@ for (const h of beatHeads) {
 }
 console.log(`beat: ${half} BPM half-time over ${span.toFixed(1)} s, five heads (lead-ins skipped: ${heads.filter((_, i) => i % 2).map(h => h.split(':').at(-1)).join(', ')} s)`);
 
-const r = spawnSync(process.execPath, [join(repo, 'tools/performance/render-heads.mjs'), workScore, resolve(outputPath), ...heads, '--', ...rapArgs], { stdio: 'inherit' });
+const tool = threeD ? 'tools/performance/show-heads.mjs' : 'tools/performance/render-heads.mjs';
+const r = spawnSync(process.execPath, [join(repo, tool), workScore, resolve(outputPath), ...heads, '--', ...rapArgs], { stdio: 'inherit' });
 process.exit(r.status ?? 1);

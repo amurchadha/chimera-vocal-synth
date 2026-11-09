@@ -2816,6 +2816,16 @@ input[type="range"]::-moz-range-thumb {
   min-height: 0;
 }
 
+/* a show with "layout": "lead": the lead's head tall on the left, the band (up to six) in a grid beside it */
+.duet-heads.lead {
+  grid-template-columns: minmax(0, 2fr) repeat(var(--band, 2), minmax(0, 1fr));
+  grid-auto-rows: minmax(0, 1fr);
+}
+
+.duet-heads.lead > :first-child {
+  grid-row: 1 / span 2;
+}
+
 .duet-head .screen-body {
   min-height: 180px;
 }

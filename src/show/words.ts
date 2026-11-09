@@ -46,6 +46,19 @@ export function sungWords(m: Melody, syls: Syllable[], spell: Record<string, str
   return { times, shown, parent };
 }
 
+/** a spoken or rapped voice's words, already timed (`[{"text", "start", "end"}]`, s on the render's clock) */
+export interface TimedWord {
+  text: string;
+  start: number;
+  end: number;
+}
+
+/** Words at the mouth for a voice whose words carry their own times (a rap score's), in time order. */
+export function timedWords(list: TimedWord[]): SungWords {
+  const sorted = list.filter((w) => w.end > w.start).sort((a, b) => a.start - b.start);
+  return { times: sorted.map((w) => [w.start, w.end]), shown: sorted.map((w) => w.text), parent: sorted.map((_, i) => i) };
+}
+
 /** the word sounding at time t (s), keyed by its note so a repeated word is still a new one */
 export function wordAt(w: SungWords, t: number): MouthWord | null {
   // binary search: the last note starting at or before t

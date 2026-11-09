@@ -32,7 +32,8 @@ async function worker(dir: string, from: number, to: number): Promise<void> {
   const browser = await chromium.launch({
     headless: true,
     executablePath: process.env.CHROME || undefined,
-    args: ["--enable-unsafe-swiftshader", "--use-gl=angle", "--use-angle=swiftshader"],
+    // a Mac draws WebGL through Metal (SwiftShader costs 16x the CPU, as the layout lint found)
+    args: process.platform === "darwin" ? ["--use-angle=metal", "--ignore-gpu-blocklist"] : ["--enable-unsafe-swiftshader", "--use-gl=angle", "--use-angle=swiftshader"],
   });
   const page = await browser.newPage({ viewport: { width: W, height: H }, deviceScaleFactor: 1 });
   await page.clock.install({ time: new Date("2026-01-01T00:00:00Z") });

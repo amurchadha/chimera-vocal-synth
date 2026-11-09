@@ -27,7 +27,7 @@ import { mouthWords } from "../mouthWords.ts";
 import { V } from "../colors.ts";
 import { g2p } from "../speech.ts";
 import { lyricsToSyllables } from "../../wasm/engine.ts";
-import { sungWords, wordAt, type Melody, type SungWords } from "../../show/words.ts";
+import { sungWords, timedWords, wordAt, type Melody, type SungWords, type TimedWord } from "../../show/words.ts";
 import type { OverlayFn } from "./AnatomyView.tsx";
 
 interface ShowFile {
@@ -36,12 +36,16 @@ interface ShowFile {
   bpm?: number;
   downbeat?: number;
   spell?: Record<string, string>;
-  voices: { name: string; tele: string; melody?: string }[];
+  /** "lead": the first voice large on the left, facing the others in a grid on the right */
+  layout?: "row" | "lead";
+  /** words: timed words (`[{"text","start","end"}]`) for a voice not sung from a melody;
+   *  offset: seconds of the voice's own recording to skip, so a late first hit lands on the show's time */
+  voices: { name: string; tele: string; melody?: string; words?: string; offset?: number }[];
 }
 
 interface Loaded {
   show: ShowFile;
-  voices: { name: string; track: TeleTrack; words: SungWords | null }[];
+  voices: { name: string; track: TeleTrack; words: SungWords | null; offset: number }[];
 }
 
 /** the heads as the face screen shows them by default, less the measurement labels */
@@ -82,7 +86,10 @@ export function DuetPage(props: { id: string }) {
       // the words: syllables as the CLI splits them (the pronouncing dictionary first, as it does)
       const melodies = await Promise.all(show.voices.map((v) => (v.melody ? fetchOk(base + v.melody).then((r) => r.json() as Promise<Melody>) : null)));
       if (melodies.some(Boolean)) await g2p.load().catch(() => {});
-      const words = melodies.map((m) => {
+      const timed = await Promise.all(show.voices.map((v) => (v.words ? fetchOk(base + v.words).then((r) => r.json() as Promise<TimedWord[]>) : null)));
+      const words = melodies.map((m, i) => {
+        const own = timed[i];
+        if (own) return timedWords(own);
         if (!m) return null;
         try {
           return sungWords(m, lyricsToSyllables(m.lyrics), show.spell);
@@ -91,7 +98,7 @@ export function DuetPage(props: { id: string }) {
           return null;
         }
       });
-      const voices = show.voices.map((v, i) => ({ name: v.name, track: new TeleTrack(teles[i]), words: words[i] }));
+      const voices = show.voices.map((v, i) => ({ name: v.name, track: new TeleTrack(teles[i]), words: words[i], offset: v.offset ?? 0 }));
       await transport.load(audio);
       if (live) setLoaded({ show, voices });
     })().catch((e: unknown) => live && setError(e instanceof Error ? e.message : String(e)));
@@ -119,14 +126,17 @@ export function DuetPage(props: { id: string }) {
     );
   const st = transport?.state ?? { playing: false, time: 0, duration: 0, epoch: 0 };
   const title = loaded?.show.title ?? "Loading…";
+  // in a row the last of several turns to face the others; with a lead, the lead faces the band and the band faces back
+  const lead = loaded?.show.layout === "lead";
+  const facing = (i: number, n: number): 1 | -1 => (lead ? (i === 0 ? 1 : -1) : i > 0 && i === n - 1 ? -1 : 1);
   return (
     <div className="duet">
       <header className="duet-top">
         <span className="wordmark">Chimera</span>
         <span className="duet-title">{title}</span>
       </header>
-      <main className="duet-heads" style={{ "--voices": loaded?.voices.length ?? 2 } as React.CSSProperties}>
-        {loaded && transport ? loaded.voices.map((v, i) => <Head key={i} name={v.name} track={v.track} words={v.words} show={loaded.show} transport={transport} facing={i > 0 && i === loaded.voices.length - 1 ? -1 : 1} />) : <p className="duet-msg">Loading the song…</p>}
+      <main className={lead ? "duet-heads lead" : "duet-heads"} style={{ "--voices": loaded?.voices.length ?? 2, "--band": Math.min(3, Math.max(1, (loaded?.voices.length ?? 2) - 1)) } as React.CSSProperties}>
+        {loaded && transport ? loaded.voices.map((v, i) => <Head key={i} name={v.name} track={v.track} words={v.words} offset={v.offset} show={loaded.show} transport={transport} facing={facing(i, loaded.voices.length)} />) : <p className="duet-msg">Loading the song…</p>}
       </main>
       <footer className="duet-bar">
         <button className="primary large" disabled={!loaded} onClick={() => (st.playing ? transport?.pause() : transport?.play())}>
@@ -152,8 +162,8 @@ export function DuetPage(props: { id: string }) {
 }
 
 /** one voice's head; the last of several turns to face the others */
-function Head(props: { name: string; track: TeleTrack; words: SungWords | null; show: ShowFile; transport: Transport; facing: 1 | -1 }) {
-  const { track, show, transport, words } = props;
+function Head(props: { name: string; track: TeleTrack; words: SungWords | null; offset: number; show: ShowFile; transport: Transport; facing: 1 | -1 }) {
+  const { track, show, transport, words, offset } = props;
   const feedRef = useRef<HeadFeed | null>(null);
   // the syllable at the mouth, written on the side the face looks to
   const overlayRef = useRef<OverlayFn | undefined>(undefined);
@@ -172,7 +182,7 @@ function Head(props: { name: string; track: TeleTrack; words: SungWords | null; 
       facing: props.facing,
       frame: () => {
         const t = transport.time();
-        const i = track.indexAt(t);
+        const i = track.indexAt(Math.max(0, t + offset));
         const msg = track.message(i, beatStep(t));
         // paused: the head keeps its shape, the voice and the face come to rest
         if (!transport.isPlaying) return { tele: null, artic: VoiceModel.articFromArray(msg.t.artic), epoch: transport.epoch };

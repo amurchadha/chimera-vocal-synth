@@ -70,3 +70,18 @@ describe("the trail at the mouth", () => {
     expect(t.entries.map((e) => e.word.key)).toEqual(["b"]);
   });
 });
+
+describe("timed words at a rap voice's mouth", () => {
+  test("each word shows over its own span, in time order, and a gap shows nothing", async () => {
+    const { timedWords, wordAt } = await import("../src/show/words.ts");
+    const w = timedWords([
+      { text: "two", start: 0.5, end: 0.7 },
+      { text: "one", start: 0.1, end: 0.3 },
+      { text: "empty", start: 0.9, end: 0.9 },
+    ]);
+    expect(wordAt(w, 0.2)?.text).toBe("one");
+    expect(wordAt(w, 0.4)).toBeNull();
+    expect(wordAt(w, 0.6)).toEqual({ key: 1, text: "two" });
+    expect(wordAt(w, 0.9)).toBeNull();
+  });
+});
