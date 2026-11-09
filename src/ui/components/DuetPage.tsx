@@ -22,12 +22,20 @@
  *       machine running the modeled 808's track (tools/performance/808.mjs) on its own step clock:
  *       its bass row from the track, its kick, snare and hats rows from the optional `kit` (a hit
  *       list as above; without it only the bass row lights)
- * Both are drawn as wireframes in 3D and share one WebGL context (render/wire3d.ts); each head has its own.
+ *   { "name": "Keys", "tele": "keys.json", "kind": "keys" }  a synth keyboard's notes (src/show/keys.ts):
+ *       { "notes": [{ "t": 0.2, "dur": 0.8, "midi": 67, "part": "chord" }, …] }, part chord or riff
+ * All three are drawn as wireframes in 3D and share one WebGL context (render/wire3d.ts); each head
+ * has its own.
+ *
+ * With "layout": "lead" the first voice stands tall on the left and the rest share two rows beside
+ * it; an odd one out at the end spans the row (a keyboard is wide). On a portrait screen the lead
+ * takes the top row and the rest two to a row below it.
  */
 import { useEffect, useRef, useState } from "react";
 import { AnatomyView3D, type HeadFeed } from "./AnatomyView3D.tsx";
 import { Instrument808, type Track808 } from "./Instrument808.tsx";
 import { DrumKit3D, type KitTrack } from "./DrumKit3D.tsx";
+import { Keys3D, type KeysTrack } from "./Keys3D.tsx";
 import { Screen } from "./Screen.tsx";
 import { TeleTrack } from "../../show/tele.ts";
 import { Transport } from "../../show/transport.ts";
@@ -54,14 +62,16 @@ interface ShowFile {
    *  offset: seconds of the voice's own recording to skip, so a late first hit lands on the show's time */
   /*  kind "808": not a head but a drum machine running the modeled 808 (tools/performance/808.mjs), its
    *  track in `tele` (the .json), and `kit` an optional hit list for its kick, snare and hats rows;
-   *  kind "kit": a drum kit, its hit list in `tele` (the .json, see src/show/kit.ts) */
-  voices: { name: string; tele: string; kind?: "808" | "kit"; kit?: string; melody?: string; words?: string; offset?: number }[];
+   *  kind "kit": a drum kit, its hit list in `tele` (the .json, see src/show/kit.ts);
+   *  kind "keys": a synth keyboard, its notes in `tele` (the .json, see src/show/keys.ts) */
+  voices: { name: string; tele: string; kind?: "808" | "kit" | "keys"; kit?: string; melody?: string; words?: string; offset?: number }[];
 }
 
 type LoadedVoice =
-  | { name: string; offset: number; track: TeleTrack; words: SungWords | null; drum?: undefined; kit?: undefined }
-  | { name: string; offset: number; drum: Track808; hits?: KitTrack; track?: undefined; kit?: undefined }
-  | { name: string; offset: number; kit: KitTrack; track?: undefined; drum?: undefined };
+  | { name: string; offset: number; track: TeleTrack; words: SungWords | null; drum?: undefined; kit?: undefined; keys?: undefined }
+  | { name: string; offset: number; drum: Track808; hits?: KitTrack; track?: undefined; kit?: undefined; keys?: undefined }
+  | { name: string; offset: number; kit: KitTrack; track?: undefined; drum?: undefined; keys?: undefined }
+  | { name: string; offset: number; keys: KeysTrack; track?: undefined; drum?: undefined; kit?: undefined };
 
 interface Loaded {
   show: ShowFile;
@@ -102,7 +112,7 @@ export function DuetPage(props: { id: string }) {
     (async () => {
       const show = (await (await fetchOk(base + "show.json")).json()) as ShowFile;
       if (!show.voices?.length || !show.audio) throw new Error("show.json needs audio and voices");
-      const [audio, ...teles] = await Promise.all([fetchOk(base + show.audio).then((r) => r.arrayBuffer()), ...show.voices.map((v) => fetchOk(base + v.tele).then((r) => (v.kind === "808" || v.kind === "kit" ? r.json() : r.arrayBuffer())))]);
+      const [audio, ...teles] = await Promise.all([fetchOk(base + show.audio).then((r) => r.arrayBuffer()), ...show.voices.map((v) => fetchOk(base + v.tele).then((r) => (v.kind ? r.json() : r.arrayBuffer())))]);
       // the words: syllables as the CLI splits them (the pronouncing dictionary first, as it does)
       const melodies = await Promise.all(show.voices.map((v) => (v.melody ? fetchOk(base + v.melody).then((r) => r.json() as Promise<Melody>) : null)));
       if (melodies.some(Boolean)) await g2p.load().catch(() => {});
@@ -128,6 +138,11 @@ export function DuetPage(props: { id: string }) {
         };
         if (v.kind === "808") return { name: v.name, drum: teles[i] as Track808, hits: machineKits[i] ? hitList(machineKits[i], v.kit!) : undefined, offset };
         if (v.kind === "kit") return { name: v.name, kit: hitList(teles[i] as KitTrack, v.tele), offset };
+        if (v.kind === "keys") {
+          const keys = teles[i] as KeysTrack;
+          if (!Array.isArray(keys?.notes)) throw new Error(`${v.tele}: a keyboard needs "notes"`);
+          return { name: v.name, keys, offset };
+        }
         return { name: v.name, track: new TeleTrack(teles[i] as ArrayBuffer), words: words[i], offset };
       });
       await transport.load(audio);
@@ -160,16 +175,22 @@ export function DuetPage(props: { id: string }) {
   // in a row the last of several turns to face the others; with a lead, the lead faces the band and the band faces back
   const lead = loaded?.show.layout === "lead";
   const facing = (i: number, n: number): 1 | -1 => (lead ? (i === 0 ? 1 : -1) : i > 0 && i === n - 1 ? -1 : 1);
+  // beside a lead the band fills two rows; an odd one out at the end spans its row (or both rows,
+  // alone). The head is as tall as its cell: with a small band it needs no more than 1.5 of 3.5 wide
+  const n = loaded?.voices.length ?? 2, band = n - 1, cols = Math.min(4, Math.max(1, Math.ceil(band / 2)));
+  const odd = lead && band % 2 === 1 && band < 8 ? (band === 1 ? " odd one" : " odd") : "";
   return (
     <div className="duet">
       <header className="duet-top">
         <span className="wordmark">Chimera</span>
         <span className="duet-title">{title}</span>
       </header>
-      <main className={lead ? "duet-heads lead" : "duet-heads"} style={{ "--voices": loaded?.voices.length ?? 2, "--band": Math.min(4, Math.max(1, Math.ceil(((loaded?.voices.length ?? 2) - 1) / 2))) } as React.CSSProperties}>
+      <main className={lead ? `duet-heads lead${odd}` : "duet-heads"} style={{ "--voices": n, "--band": cols, "--lead": cols <= 2 ? "1.5fr" : "2fr" } as React.CSSProperties}>
         {loaded && transport ? (
           loaded.voices.map((v, i) =>
-            v.kit ? (
+            v.keys ? (
+              <Keys3D key={i} name={v.name} keys={v.keys} offset={v.offset} time={() => transport.time()} />
+            ) : v.kit ? (
               <DrumKit3D key={i} name={v.name} kit={v.kit} offset={v.offset} time={() => transport.time()} />
             ) : v.drum ? (
               <Instrument808 key={i} name={v.name} track={v.drum} kit={v.hits} offset={v.offset} time={() => transport.time()} />

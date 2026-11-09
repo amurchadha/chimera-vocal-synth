@@ -218,6 +218,30 @@ export class Pen {
   }
 }
 
+/** a knob standing on a level surface at height y0, turned to v (0..1 sweeps 270°, 0.5 points straight back), its cap ring in `cap` */
+export function knob(pen: Pen, x: number, y0: number, z: number, r: number, v: number, cap: string): void {
+  const h = r * 0.9, n = 12;
+  pen.start();
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * 2 * Math.PI;
+    pen.p(x + r * Math.cos(a), y0, z + r * Math.sin(a));
+  }
+  pen.stroke(V.blueMid, 0.85, 0.7, false, true);
+  pen.start();
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * 2 * Math.PI;
+    pen.p(x + 0.85 * r * Math.cos(a), y0 + h, z + 0.85 * r * Math.sin(a));
+  }
+  pen.stroke(cap, 1.05, 0.9, false, true);
+  for (let i = 0; i < 4; i++) {
+    const a = (i + 0.5) * (Math.PI / 2), c = Math.cos(a), s = Math.sin(a);
+    pen.seg(x + r * c, y0, z + r * s, x + 0.85 * r * c, y0 + h, z + 0.85 * r * s, V.blueDim, 0.85, 0.7);
+  }
+  // the pointer: straight back is 12 o'clock to someone at the front
+  const a = (-0.75 + 1.5 * v) * Math.PI, dx = Math.sin(a), dz = -Math.cos(a);
+  pen.seg(x + 0.2 * r * dx, y0 + h, z + 0.2 * r * dz, x + 0.85 * r * dx, y0 + h, z + 0.85 * r * dz, V.white, 1.3, 0.95);
+}
+
 /** every other point a drawing makes, and every line's ends (to frame it) */
 export function boundsOf(draw: (pen: Pen) => void): V3[] {
   const pts: V3[] = [];

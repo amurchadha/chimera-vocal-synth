@@ -66,7 +66,7 @@ function draw(ctx: CanvasRenderingContext2D, w: number, h: number, tr: Track808,
 
   // the bass's pitch across the top, as much as fits: the pitch and its note, then their captions
   const pad = 12;
-  const size = Math.max(8.75, Math.min(13, w / 22));
+  const size = Math.max(9.5, Math.min(16, w / 24)); // large enough to read when the video is watched on a phone; the captions (0.8) stay over 7 px
   const cap: LabelOpts = { size: size * 0.8, color: TEXT.secondary, ls: 0.18 };
   const big: LabelOpts = { size: size * 1.7, color: V.amber, weight: "m", ls: 0.08 };
   const hzText = hz > 0 ? `${hz.toFixed(0)} HZ` : "-- HZ", noteText = hz > 0 ? noteName(hz) : "--";

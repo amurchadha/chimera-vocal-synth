@@ -9,7 +9,7 @@
  */
 import { V } from "../colors.ts";
 import { PARTS, SCOPE_N, type MachineState, type Part } from "../../show/sequencer.ts";
-import { boundsOf, tint, type Pen, type V3 } from "./wire3d.ts";
+import { boundsOf, knob as knobAt, tint, type Pen, type V3 } from "./wire3d.ts";
 
 /** each part's colour: its row, its key flashes, its knobs' stripe */
 export const PART_COLOR: Record<Part, string> = { kick: V.red, snare: V.pink, hats: V.green, bass: V.amber };
@@ -62,28 +62,9 @@ function lamp(pen: Pen, x: number, z: number, color: string, lit: number): void 
   if (lit > 0.15) disc(pen, x, z, 0.25, 0.05, 8, color, 1.05, lit, lit > 0.5);
 }
 
-/** a knob turned to v (0..1 sweeps 270°, 0.5 points straight back), its cap ring in `cap` */
+/** a knob on the top surface */
 function knob(pen: Pen, x: number, z: number, r: number, v: number, cap: string): void {
-  const y0 = topY(z), h = r * 0.9, n = 12;
-  pen.start();
-  for (let i = 0; i < n; i++) {
-    const a = (i / n) * 2 * Math.PI;
-    pen.p(x + r * Math.cos(a), y0, z + r * Math.sin(a));
-  }
-  pen.stroke(V.blueMid, 0.85, 0.7, false, true);
-  pen.start();
-  for (let i = 0; i < n; i++) {
-    const a = (i / n) * 2 * Math.PI;
-    pen.p(x + 0.85 * r * Math.cos(a), y0 + h, z + 0.85 * r * Math.sin(a));
-  }
-  pen.stroke(cap, 1.05, 0.9, false, true);
-  for (let i = 0; i < 4; i++) {
-    const a = (i + 0.5) * (Math.PI / 2), c = Math.cos(a), s = Math.sin(a);
-    pen.seg(x + r * c, y0, z + r * s, x + 0.85 * r * c, y0 + h, z + 0.85 * r * s, V.blueDim, 0.85, 0.7);
-  }
-  // the pointer: straight back is 12 o'clock to someone at the front
-  const a = (-0.75 + 1.5 * v) * Math.PI, dx = Math.sin(a), dz = -Math.cos(a);
-  pen.seg(x + 0.2 * r * dx, y0 + h, z + 0.2 * r * dz, x + 0.85 * r * dx, y0 + h, z + 0.85 * r * dz, V.white, 1.3, 0.95);
+  knobAt(pen, x, topY(z), z, r, v, cap);
 }
 
 /** a toggle switch, its lever thrown back (up) or forward */
