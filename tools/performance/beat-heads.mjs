@@ -1,16 +1,17 @@
-// A rap score performed with a beat behind it, in one step: seven heads (kick, snare, hats, a
-// hummed bass, a three-voice choir) and a modeled 808 play an original half-time beat at the score's bpm for as long as the
+// A rap score performed with a beat behind it, in one step: six heads (kick, snare, hats, a
+// three-voice choir) and a modeled 808 play an original half-time beat at the score's bpm for as long as the
 // score runs, each recorded with its telemetry, then render-heads.mjs draws the lead and the five.
 // --snap moves every word's start onto the 16th-note grid of the score's bpm first (one offset
 // fitted for the whole score, then each start rounded), so a score whose timing drifts sits on
 // the beat. The working files (the heads, the snapped score) go in <out>.parts/ and are kept.
 // --3d: the heads in 3D on the duet page (show-heads.mjs: the lead large, the band beside it),
 // captured on the GPU, instead of the side view with the band in tiles (render-heads.mjs).
-// usage: bun tools/performance/beat-heads.mjs score.json out.mp4 [--snap] [--3d] [--build] [--breath 0.25] [-- render rap options]
+// usage: bun tools/performance/beat-heads.mjs score.json out.mp4 [--snap] [--3d] [--build] [--breath 0.25] [--beat <onlinesequencer link | notes.json>] [-- render rap options]
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { render808 } from './808.mjs';
+import { arrange, findLoops, loadSequence } from './sequence.mjs';
 // 16-bit mono WAV at 48 kHz
 const writeWav = (path, x) => {
   const b = Buffer.alloc(44 + x.length * 2);
@@ -27,7 +28,9 @@ const rapArgs = dash < 0 ? [] : argv.slice(dash + 1);
 const snap = own.includes('--snap');
 const threeD = own.includes('--3d');
 const build = own.includes('--build');
-const [scorePath, outputPath] = own.filter((a, i) => a !== '--snap' && a !== '--3d' && a !== '--build' && a !== '--breath' && own[i - 1] !== '--breath');
+const beatAt = own.indexOf('--beat');
+const beatSource = beatAt >= 0 ? own[beatAt + 1] : null;
+const [scorePath, outputPath] = own.filter((a, i) => a !== '--snap' && a !== '--3d' && a !== '--build' && a !== '--breath' && own[i - 1] !== '--breath' && a !== '--beat' && own[i - 1] !== '--beat');
 if (!scorePath || !outputPath) throw new Error('usage: bun beat-heads.mjs score.json out.mp4 [--snap] [--3d] [-- render rap options]');
 const repo = resolve(new URL('../..', import.meta.url).pathname);
 const chimera = join(repo, 'target/release/chimera');
@@ -106,7 +109,7 @@ const workScore = join(parts, 'score.json');
 writeFileSync(workScore, JSON.stringify(score, null, 1));
 
 // The beat (original). With --build it follows the rap: every 6.5 s (two half-time bars at the score's bpm) takes
-// a level from the lead's syllables per second there: 0 no words (kick, bass, choir), 1 under 5.5
+// a level from the lead's syllables per second there: 0 no words (kick, 808, choir), 1 under 5.5
 // (backbeat, 8th hats), 2 under 8 (accents, hats rolling in 16ths of the full bpm), 3 at 8 or more
 // (doubled kick, snare fills, every hat, the bass jumping octaves). Before the first level-3 phrase
 // after a slower one the beat drops out for a bar, the choir alone. Each head's sequencer lead-in is
@@ -151,8 +154,7 @@ const KIT = {
     't t t t | t t t t | t t tss . | t t t t | t t t t | t . t t | t t t t | tss . t t | '.repeat(2).slice(0, -3),
     Array.from({ length: 64 }, (_, i) => (i % 8 === 4 ? 'tss>' : i % 2 === 0 ? 't>' : 't')).join(' '),
   ],
-  // the 808 holds the low end (C minor roots, octave jumps when it's fastest); the hummed bass
-  // doubles it an octave up so the two don't fight
+  // the 808 holds the low end (C minor roots, octave jumps when it's fastest)
   808: [
     'm:36> . . . | . . . . | . . . . | . . . . | m:34> . . . | . . . . | . . . . | . . . .',
     'm:36 . . . | . . . m:36 | . . m:39 . | . . . . | m:34 . . . | . . . m:34 | . . m:36 . | m:39 . . .',
@@ -160,17 +162,28 @@ const KIT = {
     'm:36> . m:36 . | m:48 . m:36 . | m:39> . m:39 . | m:51 . m:39 . | m:34> . m:34 . | m:46 . m:34 . | m:36> . m:36 . | m:39 . m:43 .',
   ],
 };
-KIT.Bass = KIT['808'].map(p => p.replace(/m:(\d+)>?/g, (_, n) => `m:${Number(n) + 12}`));
 const rests = n => Array(n).fill('.');
 const beatHeads = [
   { label: 'Kick', bpm: half, gain: 1.0 },
   { label: 'Snare', bpm: half, gain: 0.9 },
   { label: 'Hats', bpm, gain: 0.42 },
   { label: '808', bpm: half, gain: 1.0 },
-  { label: 'Bass', bpm: half, gain: 0.5 },
 ];
 const heads = [];
 const leadIns = [];
+// --beat: someone's sequence of the beat (sequence.mjs): its bass on the 808, its chords on the
+// choir, looped under the performance (its busiest block where the rap is fastest); drums stay ours
+let seqParts = null;
+if (beatSource) {
+  const seq = await loadSequence(beatSource, join(parts, 'sequence.pb'));
+  const loops = findLoops(seq);
+  const steps = Math.ceil(span / step);
+  seqParts = arrange(seq, steps, k => (level[Math.floor((k * step) / unit)] === 3 ? loops.busy : loops.main), { bars: loops.bars });
+  // the drop before the fastest part takes the 808 out too
+  const bassSteps = seqParts.bass.split(' ').map((x, k) => { const u = Math.floor((k * step) / unit); return drop[u] && k * step - u * unit >= unit / 2 ? '.' : x; });
+  seqParts.bass = bassSteps.join(' ');
+  console.log(`sequence: ${seq.notes.length} notes at ${seq.bpm} BPM, played at ${bpm}; main loop bars ${loops.main + 1}-${loops.main + loops.bars}, busiest ${loops.busy + 1}-${loops.busy + loops.bars}`);
+}
 for (const h of beatHeads) {
   const dir = join(parts, h.label.toLowerCase());
   const tele = dir + '.tele';
@@ -181,7 +194,7 @@ for (const h of beatHeads) {
   });
   if (h.label === '808') {
     // the modeled 808 (808.mjs): no sequencer, its first hit at exactly 0, a track for its panel
-    const { samples, track } = render808(steps.join(' '), h.bpm, { decay: 0.9, drive: 1.5 });
+    const { samples, track } = seqParts ? render808(seqParts.bass, bpm, { decay: 0.7, drive: 1.5 }) : render808(steps.join(' '), h.bpm, { decay: 0.9, drive: 1.5 });
     writeWav(dir + '.wav', samples);
     writeFileSync(dir + '.json', JSON.stringify(track));
     leadIns.push(0);
@@ -205,18 +218,20 @@ const CHOIR = [
   { label: 'Alto', body: 'female', notes: [60, 58, 60, 58], gain: 0.4 },
   { label: 'Soprano', body: 'child', notes: [63, 62, 63, 62], gain: 0.34 },
 ];
-for (const v of CHOIR) {
+CHOIR.forEach((v, i) => {
   const count = Math.ceil(span / bar);
-  const notes = Array.from({ length: count }, (_, i) => [v.notes[i % v.notes.length], 4]);
+  const notes = seqParts ? seqParts.melodies[i] : Array.from({ length: count }, (_, k) => [v.notes[k % v.notes.length], 4]);
+  const sounding = notes.filter(([m]) => m > 0).length;
+  if (!sounding) return;
   const melody = join(parts, v.label.toLowerCase() + '.json');
-  writeFileSync(melody, JSON.stringify({ bpm: half, lyrics: notes.map(() => 'oo').join(' '), notes, vibrato: 0.12 }));
+  const t0 = 0.3;
+  writeFileSync(melody, JSON.stringify({ bpm: seqParts ? bpm : half, t0, lyrics: Array(sounding).fill('oo').join(' '), notes, vibrato: 0.12 }));
   const stem = join(parts, v.label.toLowerCase());
   const r = spawnSync(chimera, ['render', 'notes', melody, stem, v.body, '--tele', stem + '.tele'], { stdio: ['ignore', 'ignore', 'inherit'] });
   if (r.status !== 0) throw new Error(`the ${v.label} head failed to render`);
-  const offset = wavStart(stem + '.wav');
-  leadIns.push(offset);
-  heads.push('--head', `${v.label}:${stem}.tele:${stem}.wav:${v.gain}:${offset.toFixed(4)}`);
-}
+  leadIns.push(t0);
+  heads.push('--head', `${v.label}:${stem}.tele:${stem}.wav:${v.gain}:${t0}`);
+});
 console.log(`beat: ${half} BPM half-time over ${span.toFixed(1)} s; levels per 6.5 s: ${level.map((l, k) => (drop[k] ? l + 'v' : l)).join(' ')} (v = drop); lead-ins skipped: ${leadIns.map(x => x.toFixed(3)).join(', ')} s`);
 
 const tool = threeD ? 'tools/performance/show-heads.mjs' : 'tools/performance/render-heads.mjs';
