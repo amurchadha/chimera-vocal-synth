@@ -135,7 +135,7 @@ export function DuetPage(props: { id: string }) {
         <span className="wordmark">Chimera</span>
         <span className="duet-title">{title}</span>
       </header>
-      <main className={lead ? "duet-heads lead" : "duet-heads"} style={{ "--voices": loaded?.voices.length ?? 2, "--band": Math.min(3, Math.max(1, (loaded?.voices.length ?? 2) - 1)) } as React.CSSProperties}>
+      <main className={lead ? "duet-heads lead" : "duet-heads"} style={{ "--voices": loaded?.voices.length ?? 2, "--band": Math.min(4, Math.max(1, Math.ceil(((loaded?.voices.length ?? 2) - 1) / 2))) } as React.CSSProperties}>
         {loaded && transport ? loaded.voices.map((v, i) => <Head key={i} name={v.name} track={v.track} words={v.words} offset={v.offset} show={loaded.show} transport={transport} facing={facing(i, loaded.voices.length)} />) : <p className="duet-msg">Loading the song…</p>}
       </main>
       <footer className="duet-bar">

@@ -1,5 +1,5 @@
-// A rap score performed with a beat behind it, in one step: five heads (kick, snare, hats, a
-// hummed bass, a sung pad) play an original half-time beat at the score's bpm for as long as the
+// A rap score performed with a beat behind it, in one step: seven heads (kick, snare, hats, a
+// hummed bass, a three-voice choir) play an original half-time beat at the score's bpm for as long as the
 // score runs, each recorded with its telemetry, then render-heads.mjs draws the lead and the five.
 // --snap moves every word's start onto the 16th-note grid of the score's bpm first (one offset
 // fitted for the whole score, then each start rounded), so a score whose timing drifts sits on
@@ -97,10 +97,10 @@ const workScore = join(parts, 'score.json');
 writeFileSync(workScore, JSON.stringify(score, null, 1));
 
 // The beat (original). With --build it follows the rap: every 6.5 s (two half-time bars at the score's bpm) takes
-// a level from the lead's syllables per second there: 0 no words (kick, bass, pad), 1 under 5.5
+// a level from the lead's syllables per second there: 0 no words (kick, bass, choir), 1 under 5.5
 // (backbeat, 8th hats), 2 under 8 (accents, hats rolling in 16ths of the full bpm), 3 at 8 or more
 // (doubled kick, snare fills, every hat, the bass jumping octaves). Before the first level-3 phrase
-// after a slower one the beat drops out for a bar, the pad alone. Each head's sequencer lead-in is
+// after a slower one the beat drops out for a bar, the choir alone. Each head's sequencer lead-in is
 // measured once from its first sound alone and skipped (render-heads' offset).
 const half = bpm / 2;
 const bar = 4 * 60 / half;                     // one half-time bar
@@ -176,19 +176,24 @@ for (const h of beatHeads) {
   leadIns.push(offset);
   heads.push('--head', `${h.label}:${tele}:${join(dir, 'pattern.wav')}:${h.gain}:${offset.toFixed(4)}`);
 }
-// the pad: one sung note a bar (Eb4 D4 C4 Bb3 over the bass's C and Bb), repeated past the end
-{
-  const line = [63, 62, 60, 58];
+// the choir (original): three heads singing a four-bar chord loop over the bass's C and Bb, one
+// chord a bar, voices moving by step: Cm (G C Eb), Bb (F Bb D), Ab over C (Ab C Eb), Bb
+const CHOIR = [
+  { label: 'Tenor', body: 'male', notes: [55, 53, 56, 53], gain: 0.42 },
+  { label: 'Alto', body: 'female', notes: [60, 58, 60, 58], gain: 0.4 },
+  { label: 'Soprano', body: 'child', notes: [63, 62, 63, 62], gain: 0.34 },
+];
+for (const v of CHOIR) {
   const count = Math.ceil(span / bar);
-  const notes = Array.from({ length: count }, (_, i) => [line[i % line.length], 4]);
-  const melody = join(parts, 'pad.json');
-  writeFileSync(melody, JSON.stringify({ bpm: half, lyrics: notes.map(() => 'oo').join(' '), notes, vibrato: 0.1 }));
-  const stem = join(parts, 'pad');
-  const r = spawnSync(chimera, ['render', 'notes', melody, stem, 'female', '--tele', stem + '.tele'], { stdio: ['ignore', 'ignore', 'inherit'] });
-  if (r.status !== 0) throw new Error('the pad head failed to render');
+  const notes = Array.from({ length: count }, (_, i) => [v.notes[i % v.notes.length], 4]);
+  const melody = join(parts, v.label.toLowerCase() + '.json');
+  writeFileSync(melody, JSON.stringify({ bpm: half, lyrics: notes.map(() => 'oo').join(' '), notes, vibrato: 0.12 }));
+  const stem = join(parts, v.label.toLowerCase());
+  const r = spawnSync(chimera, ['render', 'notes', melody, stem, v.body, '--tele', stem + '.tele'], { stdio: ['ignore', 'ignore', 'inherit'] });
+  if (r.status !== 0) throw new Error(`the ${v.label} head failed to render`);
   const offset = wavStart(stem + '.wav');
   leadIns.push(offset);
-  heads.push('--head', `Pad:${stem}.tele:${stem}.wav:0.45:${offset.toFixed(4)}`);
+  heads.push('--head', `${v.label}:${stem}.tele:${stem}.wav:${v.gain}:${offset.toFixed(4)}`);
 }
 console.log(`beat: ${half} BPM half-time over ${span.toFixed(1)} s; levels per 6.5 s: ${level.map((l, k) => (drop[k] ? l + 'v' : l)).join(' ')} (v = drop); lead-ins skipped: ${leadIns.map(x => x.toFixed(3)).join(', ')} s`);
 

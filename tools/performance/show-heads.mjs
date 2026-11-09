@@ -9,6 +9,8 @@
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
+import { createServer } from 'node:net';
+import { mixGraph } from './mix.mjs';
 
 const argv = process.argv.slice(2);
 const dash = argv.indexOf('--');
@@ -31,7 +33,7 @@ for (let i = 0; i < own.length; i++) {
 }
 const [scorePath, outputPath] = positional;
 if (!scorePath || !outputPath) throw new Error('usage: bun show-heads.mjs score.json out.mp4 --head Label:tele:wav[:gain[:offset]] … [-- render rap options]');
-if (heads.length > 6) throw new Error('at most six heads fit beside the lead');
+if (heads.length > 8) throw new Error('at most eight heads fit beside the lead');
 const repo = resolve(new URL('../..', import.meta.url).pathname);
 const ffmpeg = process.env.FFMPEG || 'ffmpeg';
 const id = basename(outputPath).replace(/\.[^.]+$/, '').replace(/[^A-Za-z0-9_-]+/g, '-');
@@ -54,18 +56,10 @@ if (r.status !== 0) throw new Error('chimera render rap failed');
 const leadPeak = wavPeak(lead + '.wav');
 if (!(leadPeak >= 1e-4)) throw new Error('The voice rendered silent.');
 
-// the mix, as render-heads.mjs makes it: the lead at peak 0.86, each head the same scaled by
-// --beat-gain and its own gain, its lead-in skipped; as long as the lead
-const args = ['-nostdin', '-v', 'error', '-y', '-i', lead + '.wav'];
-const parts = [`[0:a]volume=${(0.86 / leadPeak).toFixed(5)}[l]`];
-heads.forEach((h, k) => {
-  args.push('-i', h.wav);
-  const p = Math.max(1e-4, wavPeak(h.wav));
-  const trim = h.offset > 0 ? `atrim=start=${h.offset.toFixed(4)},asetpts=PTS-STARTPTS,` : '';
-  parts.push(`[${k + 1}:a]${trim}volume=${(0.86 * beatGain * h.gain / p).toFixed(5)}[h${k}]`);
-});
-parts.push(`${['[l]', ...heads.map((_, k) => `[h${k}]`)].join('')}amix=inputs=${heads.length + 1}:duration=first:normalize=0,alimiter=limit=0.95:level=false[a]`);
-args.push('-filter_complex', parts.join(';'), '-map', '[a]', '-c:a', 'aac', '-b:a', '192k', join(dir, 'mix.m4a'));
+// the mix (mix.mjs): the lead and each head treated by its role, the beat glued and ducked under the lead
+const args = ['-nostdin', '-v', 'error', '-y', '-i', lead + '.wav', ...heads.flatMap(h => ['-i', h.wav])];
+const graph = mixGraph({ lead: { index: 0, peak: leadPeak }, heads: heads.map((h, k) => ({ ...h, index: k + 1, peak: wavPeak(h.wav) })), beatGain });
+args.push('-filter_complex', graph.filter, '-map', `[${graph.label}]`, '-c:a', 'aac', '-b:a', '192k', join(dir, 'mix.m4a'));
 const mix = spawnSync(ffmpeg, args, { stdio: 'inherit' });
 if (mix.status !== 0) throw new Error('the mix failed');
 
@@ -85,7 +79,8 @@ if (!video) process.exit(0);
 
 // capture: the app served from this checkout (vite's dev server serves public/ as it is), then
 // tools/duet-video.ts on the GPU; frames go under TMPDIR (point it at a roomy disk)
-const port = 5318;
+// a free port of our own, so two captures at once don't share (and lose) one server
+const port = await new Promise((done, fail) => { const t = createServer(); t.once('error', fail); t.listen(0, '127.0.0.1', () => { const { port } = t.address(); t.close(() => done(port)); }); });
 const server = spawn(join(repo, 'node_modules/.bin/vite'), ['--host', '127.0.0.1', '--port', String(port), '--strictPort'], { cwd: repo, stdio: 'ignore' });
 try {
   const url = `http://127.0.0.1:${port}/`;

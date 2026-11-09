@@ -9,6 +9,7 @@ import { dirname, join, resolve } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { initChimera } from '../../src/wasm/chimera.ts';
+import { mixGraph } from './mix.mjs';
 
 const argv = process.argv.slice(2);
 const dash = argv.indexOf('--');
@@ -27,7 +28,7 @@ for (let i = 0; i < own.length; i++) {
 }
 const [scorePath, outputPath] = positional;
 if (!scorePath || !outputPath) throw new Error('usage: bun render-heads.mjs score.json out.mp4 --head Label:voice.tele:voice.wav [--head …] [--beat-gain g] [-- render rap options]');
-if (heads.length > 5) throw new Error('at most five heads fit under the lyrics');
+if (heads.length > 8) throw new Error('at most eight heads fit under the lyrics');
 const repo = resolve(new URL('../..', import.meta.url).pathname);
 const ffmpeg = process.env.FFMPEG || 'ffmpeg';
 const fps = 25, sampleRate = 48000;
@@ -83,19 +84,9 @@ try {
   // scaled by --beat-gain; all start at 0 and the mix is as long as the lead
   const leadPeak = wavPeak(stem + '.wav');
   if (!(leadPeak >= 1e-4)) throw new Error('The voice rendered silent.');
-  const args = ['-nostdin','-v','error','-i',join(tmp,'silent.mp4'),'-i',stem + '.wav'];
-  const parts = [`[1:a]volume=${(0.86 / leadPeak).toFixed(5)}[l]`];
-  heads.forEach((h, k) => {
-    args.push('-i', h.wav);
-    const p = Math.max(1e-4, wavPeak(h.wav));
-    // a head's offset (s) skips that much of its start: its sequencer's lead-in, so its first hit lands on the grid
-    const trim = h.offset > 0 ? `atrim=start=${h.offset.toFixed(4)},asetpts=PTS-STARTPTS,` : '';
-    parts.push(`[${k + 2}:a]${trim}volume=${(0.86 * beatGain * h.gain / p).toFixed(5)}[h${k}]`);
-  });
-  const ins = ['[l]', ...heads.map((_, k) => `[h${k}]`)].join('');
-  parts.push(`${ins}amix=inputs=${heads.length + 1}:duration=first:normalize=0,alimiter=limit=0.95:level=false[a]`);
-  args.push('-filter_complex', parts.join(';'), '-map', '[a]');
-  const movie = join(tmp,'final.mp4');
+  const args = ['-nostdin','-v','error','-i',join(tmp,'silent.mp4'),'-i',stem + '.wav', ...heads.flatMap(h => ['-i', h.wav])];
+  const graph = mixGraph({ lead: { index: 1, peak: leadPeak }, heads: heads.map((h, k) => ({ ...h, index: k + 2, peak: wavPeak(h.wav) })), beatGain });
+  args.push('-filter_complex', graph.filter, '-map', `[${graph.label}]`);
   args.push('-map','0:v:0','-c:v','copy','-c:a','aac','-b:a','192k','-shortest','-movflags','+faststart',movie);
   const mux = spawnSync(ffmpeg,args,{stdio:'inherit'});
   if (mux.error || mux.status !== 0) throw mux.error ?? new Error('Audio mux failed.');
