@@ -16,6 +16,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { AnatomyView3D, type HeadFeed } from "./AnatomyView3D.tsx";
+import { Instrument808, type Track808 } from "./Instrument808.tsx";
 import { Screen } from "./Screen.tsx";
 import { TeleTrack } from "../../show/tele.ts";
 import { Transport } from "../../show/transport.ts";
@@ -40,12 +41,13 @@ interface ShowFile {
   layout?: "row" | "lead";
   /** words: timed words (`[{"text","start","end"}]`) for a voice not sung from a melody;
    *  offset: seconds of the voice's own recording to skip, so a late first hit lands on the show's time */
-  voices: { name: string; tele: string; melody?: string; words?: string; offset?: number }[];
+  /*  kind "808": not a head but the modeled 808 (tools/performance/808.mjs), its track in `tele` (the .json) */
+  voices: { name: string; tele: string; kind?: "808"; melody?: string; words?: string; offset?: number }[];
 }
 
 interface Loaded {
   show: ShowFile;
-  voices: { name: string; track: TeleTrack; words: SungWords | null; offset: number }[];
+  voices: ({ name: string; track: TeleTrack; words: SungWords | null; offset: number; drum?: undefined } | { name: string; drum: Track808; offset: number; track?: undefined; words?: undefined })[];
 }
 
 /** the heads as the face screen shows them by default, less the measurement labels */
@@ -82,7 +84,7 @@ export function DuetPage(props: { id: string }) {
     (async () => {
       const show = (await (await fetchOk(base + "show.json")).json()) as ShowFile;
       if (!show.voices?.length || !show.audio) throw new Error("show.json needs audio and voices");
-      const [audio, ...teles] = await Promise.all([fetchOk(base + show.audio).then((r) => r.arrayBuffer()), ...show.voices.map((v) => fetchOk(base + v.tele).then((r) => r.arrayBuffer()))]);
+      const [audio, ...teles] = await Promise.all([fetchOk(base + show.audio).then((r) => r.arrayBuffer()), ...show.voices.map((v) => fetchOk(base + v.tele).then((r) => (v.kind === "808" ? r.json() : r.arrayBuffer())))]);
       // the words: syllables as the CLI splits them (the pronouncing dictionary first, as it does)
       const melodies = await Promise.all(show.voices.map((v) => (v.melody ? fetchOk(base + v.melody).then((r) => r.json() as Promise<Melody>) : null)));
       if (melodies.some(Boolean)) await g2p.load().catch(() => {});
@@ -98,7 +100,9 @@ export function DuetPage(props: { id: string }) {
           return null;
         }
       });
-      const voices = show.voices.map((v, i) => ({ name: v.name, track: new TeleTrack(teles[i]), words: words[i], offset: v.offset ?? 0 }));
+      const voices: Loaded["voices"] = show.voices.map((v, i) =>
+        v.kind === "808" ? { name: v.name, drum: teles[i] as Track808, offset: v.offset ?? 0 } : { name: v.name, track: new TeleTrack(teles[i] as ArrayBuffer), words: words[i], offset: v.offset ?? 0 },
+      );
       await transport.load(audio);
       if (live) setLoaded({ show, voices });
     })().catch((e: unknown) => live && setError(e instanceof Error ? e.message : String(e)));
@@ -136,7 +140,7 @@ export function DuetPage(props: { id: string }) {
         <span className="duet-title">{title}</span>
       </header>
       <main className={lead ? "duet-heads lead" : "duet-heads"} style={{ "--voices": loaded?.voices.length ?? 2, "--band": Math.min(4, Math.max(1, Math.ceil(((loaded?.voices.length ?? 2) - 1) / 2))) } as React.CSSProperties}>
-        {loaded && transport ? loaded.voices.map((v, i) => <Head key={i} name={v.name} track={v.track} words={v.words} offset={v.offset} show={loaded.show} transport={transport} facing={facing(i, loaded.voices.length)} />) : <p className="duet-msg">Loading the song…</p>}
+        {loaded && transport ? loaded.voices.map((v, i) => (v.drum ? <Instrument808 key={i} name={v.name} track={v.drum} offset={v.offset} time={() => transport.time()} /> : <Head key={i} name={v.name} track={v.track} words={v.words} offset={v.offset} show={loaded.show} transport={transport} facing={facing(i, loaded.voices.length)} />)) : <p className="duet-msg">Loading the song…</p>}
       </main>
       <footer className="duet-bar">
         <button className="primary large" disabled={!loaded} onClick={() => (st.playing ? transport?.pause() : transport?.play())}>

@@ -1,5 +1,5 @@
 // A rap score performed with a beat behind it, in one step: seven heads (kick, snare, hats, a
-// hummed bass, a three-voice choir) play an original half-time beat at the score's bpm for as long as the
+// hummed bass, a three-voice choir) and a modeled 808 play an original half-time beat at the score's bpm for as long as the
 // score runs, each recorded with its telemetry, then render-heads.mjs draws the lead and the five.
 // --snap moves every word's start onto the 16th-note grid of the score's bpm first (one offset
 // fitted for the whole score, then each start rounded), so a score whose timing drifts sits on
@@ -10,6 +10,15 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { render808 } from './808.mjs';
+// 16-bit mono WAV at 48 kHz
+const writeWav = (path, x) => {
+  const b = Buffer.alloc(44 + x.length * 2);
+  b.write('RIFF', 0); b.writeUInt32LE(36 + x.length * 2, 4); b.write('WAVEfmt ', 8); b.writeUInt32LE(16, 16); b.writeUInt16LE(1, 20); b.writeUInt16LE(1, 22);
+  b.writeUInt32LE(48000, 24); b.writeUInt32LE(96000, 28); b.writeUInt16LE(2, 32); b.writeUInt16LE(16, 34); b.write('data', 36); b.writeUInt32LE(x.length * 2, 40);
+  for (let i = 0; i < x.length; i++) b.writeInt16LE(Math.round(32767 * Math.max(-1, Math.min(1, x[i]))), 44 + 2 * i);
+  writeFileSync(path, b);
+};
 
 const argv = process.argv.slice(2);
 const dash = argv.indexOf('--');
@@ -142,19 +151,23 @@ const KIT = {
     't t t t | t t t t | t t tss . | t t t t | t t t t | t . t t | t t t t | tss . t t | '.repeat(2).slice(0, -3),
     Array.from({ length: 64 }, (_, i) => (i % 8 === 4 ? 'tss>' : i % 2 === 0 ? 't>' : 't')).join(' '),
   ],
-  Bass: [
-    'm:36 . . . | . . . . | . . . . | . . . . | m:34 . . . | . . . . | . . . . | . . . .',
+  // the 808 holds the low end (C minor roots, octave jumps when it's fastest); the hummed bass
+  // doubles it an octave up so the two don't fight
+  808: [
+    'm:36> . . . | . . . . | . . . . | . . . . | m:34> . . . | . . . . | . . . . | . . . .',
     'm:36 . . . | . . . m:36 | . . m:39 . | . . . . | m:34 . . . | . . . m:34 | . . m:36 . | m:39 . . .',
     'm:36 . . . | . . . m:36 | . . m:39 . | . . . . | m:34 . . . | . . . m:34 | . . m:36 . | m:39 . . .',
-    'm:36 . m:36 . | m:48 . m:36 . | m:39 . m:39 . | m:51 . m:39 . | m:34 . m:34 . | m:46 . m:34 . | m:36 . m:36 . | m:39 . m:43 .',
+    'm:36> . m:36 . | m:48 . m:36 . | m:39> . m:39 . | m:51 . m:39 . | m:34> . m:34 . | m:46 . m:34 . | m:36> . m:36 . | m:39 . m:43 .',
   ],
 };
+KIT.Bass = KIT['808'].map(p => p.replace(/m:(\d+)>?/g, (_, n) => `m:${Number(n) + 12}`));
 const rests = n => Array(n).fill('.');
 const beatHeads = [
   { label: 'Kick', bpm: half, gain: 1.0 },
   { label: 'Snare', bpm: half, gain: 0.9 },
   { label: 'Hats', bpm, gain: 0.42 },
-  { label: 'Bass', bpm: half, gain: 0.85 },
+  { label: '808', bpm: half, gain: 1.0 },
+  { label: 'Bass', bpm: half, gain: 0.5 },
 ];
 const heads = [];
 const leadIns = [];
@@ -166,6 +179,15 @@ for (const h of beatHeads) {
     const p = phrases[l];
     return drop[k] ? [...p.slice(0, p.length / 2), ...rests(p.length / 2)] : p;
   });
+  if (h.label === '808') {
+    // the modeled 808 (808.mjs): no sequencer, its first hit at exactly 0, a track for its panel
+    const { samples, track } = render808(steps.join(' '), h.bpm, { decay: 0.9, drive: 1.5 });
+    writeWav(dir + '.wav', samples);
+    writeFileSync(dir + '.json', JSON.stringify(track));
+    leadIns.push(0);
+    heads.push('--head', `${h.label}:${dir}.json:${dir}.wav:${h.gain}:0`);
+    continue;
+  }
   // the lead-in: its first sound alone, from silence
   const first = steps.find(x => x !== '.' && x !== '-') ?? phrases.flat().find(x => x !== '.');
   const probe = join(parts, h.label.toLowerCase() + '-leadin');

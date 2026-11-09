@@ -59,7 +59,8 @@ try {
   if (r.status !== 0) throw new Error('chimera render rap failed');
   const track = loadTrack(stem + '.tele');
   const model = new VoiceModel(track.body, sampleRate);
-  const extras = heads.map(h => {
+  // the 808 (a .json track from 808.mjs) is heard but has no head in the side view
+  const extras = heads.filter(h => !h.tele.endsWith('.json')).map(h => {
     const t = loadTrack(h.tele);
     return { label: h.label, track: t, model: new VoiceModel(t.body, sampleRate), offset: h.offset };
   });

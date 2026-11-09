@@ -68,9 +68,11 @@ const words = score.lines.flatMap(l => l.words).map(w => ({ text: String(w.text 
 writeFileSync(join(dir, 'words.json'), JSON.stringify(words));
 const voices = [{ name: 'Lead', tele: 'lead.tele', words: 'words.json' }];
 heads.forEach(h => {
-  const file = h.label.toLowerCase() + '.tele';
+  // a head's telemetry, or the 808's track (a .json from 808.mjs): drawn as its panel
+  const drum = h.tele.endsWith('.json');
+  const file = h.label.toLowerCase() + (drum ? '.json' : '.tele');
   copyFileSync(h.tele, join(dir, file));
-  voices.push({ name: h.label, tele: file, ...(h.offset > 0 ? { offset: +h.offset.toFixed(4) } : {}) });
+  voices.push({ name: h.label, tele: file, ...(drum ? { kind: '808' } : {}), ...(h.offset > 0 ? { offset: +h.offset.toFixed(4) } : {}) });
 });
 const bpm = Number(score.bpm) || 120;
 writeFileSync(join(dir, 'show.json'), JSON.stringify({ title: score.title ?? id, audio: 'mix.m4a', bpm: bpm / 2, downbeat: 0, layout: 'lead', voices }, null, 1));
