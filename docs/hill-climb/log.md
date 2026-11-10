@@ -4011,3 +4011,61 @@ is private: no lyrics, audio or derived files in git; numbers and line numbers o
   verse 54 and 52, double time 49 and 54. The level over a 27 s group holds within about 1 dB
   (no lung sag in the model), so the long groups cost nothing.
 - Verdict: the default 0.25 s stays. A voice restart costs words even at a real pause.
+
+### Where the words stand (11/9 evening): the ladder, the real vocal, the tilt
+
+- Same judge as 40 (words-heard, 3 passes), same words and flags, build 9's score:
+  | | all | hook | verse | double time |
+  |---|---|---|---|---|
+  | ours, real speed (42) | 56.1 | 55 | 56 | 57 |
+  | ours, every time ×3 | 67.8 | 59 | 67 | 77 |
+  | the real vocal (demucs stem, `theirs-real.json`'s own word split) | 77.1 | 55 | 83 | 80 |
+  The "real vocal 85 %" quoted earlier was a different word split (62/89/88); on this score
+  it's 77. So speed costs about 12 points and the engine's own clarity about 10 more. The hook
+  is as hard for the real vocal as for ours. The male Harvard sentences at talking speed (11/8
+  baseline) were 28.5 % WER, about the same ceiling.
+- Tilt: our lead's octave bands re 500 Hz are 1k −8.2, 2k −15.1, 4k −22.2, 8k −24.7 dB; the real
+  stem's −2.6, −4.4, −12.4, −12.9; `chimera diagnose`'s speech norm about −6, −11, −16, −20. A
+  linear-phase EQ of 42's lead to the speech norm read **55.2 %**, to the produced vocal's
+  **54.3 %** (−0.9, −1.8: noise). Whisper doesn't need the brightness; the darkness costs no
+  words (a listener in the mix is not measured).
+- Per sound (share of the words holding it that were heard; ours ×3 slower, the real vocal):
+  æ 28 / 72, p 41 / 76, w 57 / 86, oʊ 57 / 86, ɹ 55 / 76, ɪ 61 / 79. Scripts:
+  /private/tmp (session scratch) `phone_miss.py`; renders and heard files in
+  /Volumes/hd/tmp/rapgod/words/.
+
+### 46. Talking fast, a consonant's oral gestures keep out of the neighbouring vowels' middle half (reverted)
+
+- Hypothesis: the deep dive's `protect` oracle (no consonant gesture in a vowel's middle half)
+  gave the double time's vowels +3.0 dB; a real version compresses each consonant oral
+  gesture's lead and ramp so it starts no earlier than three quarters into the vowel before,
+  and ends by a quarter into the vowel after, when `--speedup` is set.
+- Change (scratch, env-gated): `planner.rs`, after a consonant's oral gestures are added. Diff
+  (with 47) at /Volumes/hd/tmp/rapgod/words/e46-47-env.diff.
+- Judge (as 40, against 42's 56.1 %): **55.8 %**: hook 54, verse 58, double time 52 (−5).
+- Verdict: reverted. Louder vowels again aren't more words (32's lesson).
+
+### 47. Talking fast, a consonant's dominant gesture ramps in over 30 ms / speedup (reverted)
+
+- Hypothesis: 32's ramp-in half alone (its log blamed the ramp-out for the recognizer's loss).
+- Judge: **54.4 %** (−1.7): hook 59, verse 53, double time 53. Reverted.
+
+### 48. The male /æ/ apart from /ɛ/ (not kept; a candidate to combine)
+
+- Hypothesis: words holding /æ/ are the furthest behind the real vocal (28 % ×3 slower against
+  72 %). The male /æ/ target (640, 1760, 2500) is the one male reference vowel not from
+  Hillenbrand et al. 1995 while its neighbours are (female and child /æ/ are), and it sits on
+  /ɛ/: calibrated 623/1714 against /ɛ/'s 570/1768 Hz.
+- Change (scratch builds; the table spliced with only the new /æ/ calibrated, every other vowel
+  byte-identical): (a) Hillenbrand's male /æ/ (588, 1952, 2601), calibrated 578/1843; (b) an
+  open /æ/ (700, 1700, 2500), calibrated 670/1653.
+- Judge (as 40, against 42's 56.1 %): (a) **54.9 %**, /æ/ words 17 % (were 22); (b) **57.8 %**
+  (+1.7: hook 60, verse 60, double time 52), /æ/ words 33 % (6 of 18, were 4).
+- Speech guard for (b) (`speech_wer.py`, small.en, against today's HEAD run, not the 11/8
+  baseline: HEAD trains at 28.08 % WER, harvard male 27.25): **NO CLEAR CHANGE**, 28.08 →
+  28.08 %.
+- Verdict: not kept: +1.7 is inside the whole-song judge's noise, and only 2 of its 6 words are
+  /æ/ words. A Harvard-style speech judge can't see it either. If kept later, it needs the
+  vowel table regenerated (`chimera calibrate vowels male`), which moves every male vowel a
+  little; the splice was for the test only.
+- Commit: none. The two calibrations: /Volumes/hd/tmp/rapgod/words/vt-male-e48.json, -e48b.json.
